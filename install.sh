@@ -59,7 +59,7 @@ function show_logo() {
     echo "================================================================================="
     echo -e "\033[0m"
     echo ""
-    echo -e "\033[1;36mVersion:\033[0m \033[33m1.0.0\033[0m"
+    echo -e "\033[1;36mVersion:\033[0m \033[33m6.0.0\033[0m"
     echo -e "\033[1;36mTelegram Channel:\033[0m \033[34mhttps://t.me/MITvpn\033[0m"
     echo -e "\033[1;36mTelegram Group:  \033[0m \033[34mhttps://t.me/MITsupports\033[0m"
     echo ""
