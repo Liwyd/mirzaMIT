@@ -2322,6 +2322,17 @@ function install_additional_bot() {
         done
     fi
 
+    # Create Apache VirtualHost first so certbot can find it
+    sudo bash -c "cat > /etc/apache2/sites-available/addbot_${BOT_NAME}.conf << VHOST
+<VirtualHost *:80>
+    ServerName $ADD_DOMAIN
+    DocumentRoot /var/www/html/addbot_${BOT_NAME}
+</VirtualHost>
+VHOST"
+    sudo a2ensite "addbot_${BOT_NAME}.conf" 2>/dev/null
+    sudo mkdir -p "/var/www/html/addbot_${BOT_NAME}"
+    sudo systemctl reload apache2 2>/dev/null
+
     # Create SSL certificate
     echo -e "\033[33mSetting up SSL certificate...\033[0m"
     sudo systemctl stop apache2 2>/dev/null
@@ -2332,16 +2343,10 @@ function install_additional_bot() {
         sudo systemctl start apache2 2>/dev/null
         return 1
     }
-    sudo apt install python3-certbot-apache -y 2>/dev/null
-    sudo certbot --apache --agree-tos --preferred-challenges http -d "$ADD_DOMAIN" || {
-        echo -e "\e[91mError: Failed to configure SSL with Certbot.\033[0m"
-        sudo systemctl start apache2 2>/dev/null
-        return 1
-    }
-    sudo systemctl enable apache2 2>/dev/null
     sudo systemctl start apache2 2>/dev/null
+    sudo apt install python3-certbot-apache -y 2>/dev/null
 
-    # Create Apache VirtualHost with SSL
+    # Update VirtualHost with SSL
     sudo bash -c "cat > /etc/apache2/sites-available/addbot_${BOT_NAME}.conf << VHOST
 <VirtualHost *:80>
     ServerName $ADD_DOMAIN
@@ -2361,6 +2366,7 @@ function install_additional_bot() {
 </VirtualHost>
 VHOST"
     sudo a2ensite "addbot_${BOT_NAME}.conf" 2>/dev/null
+    sudo systemctl enable apache2 2>/dev/null
     sudo systemctl reload apache2 2>/dev/null
 
     # Clone repository
