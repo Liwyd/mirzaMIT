@@ -271,7 +271,8 @@ function mit_get_user_uuid($username, $location)
 
     $users = isset($result['data']['users']) ? $result['data']['users'] : (is_array($result['data']) ? $result['data'] : array());
     foreach ($users as $user) {
-        if (isset($user['email']) && $user['email'] === $username) {
+        $match_field = isset($user['username']) ? $user['username'] : (isset($user['email']) ? $user['email'] : null);
+        if ($match_field === $username) {
             $uuid = isset($user['uuid']) ? $user['uuid'] : (isset($user['id']) ? $user['id'] : null);
             if ($uuid !== null) {
                 $cache['mit_uuid'][$username] = array(

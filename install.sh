@@ -1311,9 +1311,9 @@ EOF
     echo -e "\033[32mBot installed successfully!\033[0m"
     echo -e "\033[102mDomain Bot: https://$DOMAIN_NAME\033[0m"
     echo -e "\033[104mDatabase address: https://$DOMAIN_NAME/phpmyadmin\033[0m"
-    echo -e "\033[33mDatabase name: \033[36m$DB_NAME\033[0m"
-    echo -e "\033[33mDatabase username: \033[36m$DB_USERNAME\033[0m"
-    echo -e "\033[33mDatabase password: \033[36m$DB_PASSWORD\033[0m"
+    echo -e "\033[33mDatabase name: \033[36m$dbname\033[0m"
+    echo -e "\033[33mDatabase username: \033[36m$dbuser\033[0m"
+    echo -e "\033[33mDatabase password: \033[36m$dbpass\033[0m"
 
     # Add executable permission and link
     chmod +x /root/install.sh
@@ -2316,11 +2316,21 @@ function install_additional_bot() {
     sudo systemctl enable apache2 2>/dev/null
     sudo systemctl start apache2 2>/dev/null
 
-    # Create Apache VirtualHost
+    # Create Apache VirtualHost with SSL
     sudo bash -c "cat > /etc/apache2/sites-available/addbot_${BOT_NAME}.conf << VHOST
 <VirtualHost *:80>
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/html
+    ServerName $ADD_DOMAIN
+    Redirect permanent / https://$ADD_DOMAIN/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName $ADD_DOMAIN
+    DocumentRoot /var/www/html/addbot_${BOT_NAME}
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/$ADD_DOMAIN/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/$ADD_DOMAIN/privkey.pem
+
     ErrorLog \${APACHE_LOG_DIR}/error.log
     CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>

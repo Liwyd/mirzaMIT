@@ -222,7 +222,10 @@ try {
         onholdstatus varchar(200) NULL,
         datelogin TEXT NULL,
         inbounds TEXT NULL,
-        proxies TEXT NULL)
+        proxies TEXT NULL,
+        marzban_url_direct VARCHAR(500) DEFAULT NULL,
+        marzban_username_direct VARCHAR(200) DEFAULT NULL,
+        marzban_password_direct VARCHAR(200) DEFAULT NULL)
         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_bin");
         if (!$result) {
             echo "table marzban_panel".mysqli_error($connect);
@@ -642,4 +645,3 @@ try {
 } catch (Exception $e) {
     file_put_contents('error_log',$e->getMessage());
 }
-$connect->query("ALTER TABLE `user` CHANGE `Processing_value` `Processing_value` TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL;");
