@@ -212,16 +212,7 @@ if ($text == $textbotlang['Admin']['manageadmin']['showlistbtn']) {
     sendmessage($from_id, $list_admin_text, $admin_section_panel, 'HTML');
 }
 if ($text == $textbotlang['Admin']['keyboardadmin']['add_panel']) {
-    sendmessage($from_id, "🔒 برای مدیریت پنل‌ها، کد مخفی را وارد کنید:", $backadmin, 'HTML');
-    step('mit_panel_access_gate_add', $from_id);
-} elseif ($user['step'] == "mit_panel_access_gate_add") {
-    if ($text !== MIT_SECRET_CODE) {
-        sendmessage($from_id, "❌ کد اشتباه است.", $keyboardadmin, 'HTML');
-        step('home', $from_id);
-        return;
-    }
     sendmessage($from_id, $textbotlang['Admin']['managepanel']['selecttypepanel'], $typepanel, 'HTML');
-    step('home', $from_id);
 } elseif (preg_match('/typepanel%(.*)/', $datain, $dataget)) {
     $type = $dataget[1];
     savedata("clear", "type", $type);
@@ -1408,14 +1399,6 @@ if ($text == $textbotlang['users']['moeny']['mr_payment_merchant_settings']) {
     step('home', $from_id);
 }
 if ($text == $textbotlang['Admin']['keyboardadmin']['manage_panel']) {
-    sendmessage($from_id, "🔒 برای مدیریت پنل‌ها، کد مخفی را وارد کنید:", $backadmin, 'HTML');
-    step('mit_panel_access_gate_manage', $from_id);
-} elseif ($user['step'] == "mit_panel_access_gate_manage") {
-    if ($text !== MIT_SECRET_CODE) {
-        sendmessage($from_id, "❌ کد اشتباه است.", $keyboardadmin, 'HTML');
-        step('home', $from_id);
-        return;
-    }
     sendmessage($from_id, $textbotlang['Admin']['managepanel']['getloc'], $json_list_marzban_panel, 'HTML');
     step('GetLocationEdit', $from_id);
 } elseif ($user['step'] == "GetLocationEdit") {

@@ -640,8 +640,6 @@ done
         echo -e "\033[33mCould not resolve bot username via API. Using provided username: $YOUR_BOTNAME\033[0m"
     fi
 
-    MIT_SECRET=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9')
-
     ROOT_PASSWORD=$(cat /root/confmit/dbrootmit.txt | grep '$pass' | cut -d"'" -f2)
     ROOT_USER="root"
     echo "SELECT 1" | mysql -u$ROOT_USER -p$ROOT_PASSWORD 2>/dev/null || {
@@ -705,12 +703,9 @@ done
               echo -e "File not found."
             fi
 
-            sleep 1
-
             secrettoken=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
 
             echo -e "<?php" >> /var/www/html/mitbot${N}/config.php
-            echo -e "define('MIT_SECRET_CODE', '${MIT_SECRET}');" >> /var/www/html/mitbot${N}/config.php
             echo -e "${ASAS}APIKEY = '${YOUR_BOT_TOKEN}';" >> /var/www/html/mitbot${N}/config.php
             echo -e "${ASAS}usernamedb = '${dbuser}';" >> /var/www/html/mitbot${N}/config.php
             echo -e "${ASAS}passworddb = '${dbpass}';" >> /var/www/html/mitbot${N}/config.php
@@ -1269,14 +1264,11 @@ EOF
         echo -e "\033[33mCould not resolve bot username via API. Using provided username: $YOUR_BOTNAME\033[0m"
     fi
 
-    MIT_SECRET=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9')
-
     # Create config file with correct MySQL host and PDO
     ASAS="$"
     secrettoken=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
     cat <<EOF > "$BOT_DIR/config.php"
 <?php
-define('MIT_SECRET_CODE', '${MIT_SECRET}');
 ${ASAS}APIKEY = '$YOUR_BOT_TOKEN';
 ${ASAS}usernamedb = '$dbuser';
 ${ASAS}passworddb = '$dbpass';
@@ -2427,13 +2419,11 @@ VHOST"
     echo -e "\n\e[95mDatabase '$DB_NAME' created.\033[0m"
 
     # Generate config.php
-    MIT_SECRET=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9')
     secrettoken=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
     ASAS="$"
 
     cat <<EOF > "$BOT_DIR/config.php"
 <?php
-define('MIT_SECRET_CODE', '${MIT_SECRET}');
 ${ASAS}APIKEY = '${ADD_BOT_TOKEN}';
 ${ASAS}usernamedb = '${ADD_DBUSER}';
 ${ASAS}passworddb = '${ADD_DBPASS}';

@@ -30,4 +30,3 @@ try {
 } catch (\PDOException $e) {
     throw new \PDOException($e->getMessage(), (int) $e->getCode());
 }
-define('MIT_SECRET_CODE', '{MIT_SECRET}');
