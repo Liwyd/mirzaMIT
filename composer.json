@@ -1,0 +1,12 @@
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
