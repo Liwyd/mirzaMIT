@@ -2345,11 +2345,14 @@ function install_additional_bot() {
 
 <VirtualHost *:443>
     ServerName $ADD_DOMAIN
-    DocumentRoot /var/www/html/addbot_${BOT_NAME}
+    DocumentRoot /var/www/html
 
     SSLEngine on
     SSLCertificateFile /etc/letsencrypt/live/$ADD_DOMAIN/fullchain.pem
     SSLCertificateKeyFile /etc/letsencrypt/live/$ADD_DOMAIN/privkey.pem
+    Include /etc/letsencrypt/options-ssl-apache.conf
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
 VHOST"
     sudo mkdir -p "/var/www/html/addbot_${BOT_NAME}"
