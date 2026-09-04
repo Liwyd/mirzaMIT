@@ -2322,32 +2322,22 @@ function install_additional_bot() {
         done
     fi
 
-    # Create Apache VirtualHost first so certbot can find it
-    sudo bash -c "cat > /etc/apache2/sites-available/addbot_${BOT_NAME}.conf << VHOST
-<VirtualHost *:80>
-    ServerName $ADD_DOMAIN
-    DocumentRoot /var/www/html/addbot_${BOT_NAME}
-</VirtualHost>
-VHOST"
-    sudo a2ensite "addbot_${BOT_NAME}.conf" 2>/dev/null
-    sudo mkdir -p "/var/www/html/addbot_${BOT_NAME}"
-    sudo systemctl reload apache2 2>/dev/null
-
-    # Create SSL certificate
+    # Stop Apache to free port 80
     echo -e "\033[33mSetting up SSL certificate...\033[0m"
     sudo systemctl stop apache2 2>/dev/null
-    sudo ufw allow 80 2>/dev/null
-    sudo ufw allow 443 2>/dev/null
+
+    # Obtain SSL Certificate
     sudo certbot certonly --standalone --agree-tos --preferred-challenges http -d "$ADD_DOMAIN" || {
         echo -e "\e[91mError: Failed to generate SSL certificate.\033[0m"
         sudo systemctl start apache2 2>/dev/null
         return 1
     }
-    sudo systemctl start apache2 2>/dev/null
-    sudo apt install python3-certbot-apache -y 2>/dev/null
 
-    # Update VirtualHost with SSL
-    sudo bash -c "cat > /etc/apache2/sites-available/addbot_${BOT_NAME}.conf << VHOST
+    # Restart Apache
+    sudo systemctl start apache2 2>/dev/null
+
+    # Configure Apache for new domain
+    sudo bash -c "cat > /etc/apache2/sites-available/${ADD_DOMAIN}.conf << VHOST
 <VirtualHost *:80>
     ServerName $ADD_DOMAIN
     Redirect permanent / https://$ADD_DOMAIN/
@@ -2360,12 +2350,10 @@ VHOST"
     SSLEngine on
     SSLCertificateFile /etc/letsencrypt/live/$ADD_DOMAIN/fullchain.pem
     SSLCertificateKeyFile /etc/letsencrypt/live/$ADD_DOMAIN/privkey.pem
-
-    ErrorLog \${APACHE_LOG_DIR}/error.log
-    CustomLog \${APACHE_LOG_DIR}/access.log combined
 </VirtualHost>
 VHOST"
-    sudo a2ensite "addbot_${BOT_NAME}.conf" 2>/dev/null
+    sudo mkdir -p "/var/www/html/addbot_${BOT_NAME}"
+    sudo a2ensite "${ADD_DOMAIN}.conf" 2>/dev/null
     sudo systemctl enable apache2 2>/dev/null
     sudo systemctl reload apache2 2>/dev/null
 
@@ -2448,7 +2436,7 @@ PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 PDO::ATTR_EMULATE_PREPARES   => false,
 ];
-\$dsn = "mysql:host=localhost;dbname=\${ASAS}dbname;charset=utf8mb4";
+    \$dsn = "mysql:host=localhost;dbname=\$dbname;charset=utf8mb4";
 try {
 \$pdo = new PDO(\$dsn, \$usernamedb, \$passworddb, \$options);
 } catch (\PDOException \$e) {
@@ -2629,7 +2617,13 @@ function remove_additional_bot() {
     # Remove directory
     sudo rm -rf "$BOT_DIR" && echo -e "\e[92mBot directory removed: $BOT_DIR\033[0m"
 
-    # Disable Apache site
+    # Disable and remove Apache site config (domain-based name)
+    local BOT_DOMAIN=$(grep '^\$domainhosts' "$CONFIG_PATH" | awk -F"'" '{print $2}' | cut -d'/' -f1)
+    if [ -n "$BOT_DOMAIN" ]; then
+        sudo a2dissite "${BOT_DOMAIN}.conf" 2>/dev/null
+        sudo rm -f "/etc/apache2/sites-available/${BOT_DOMAIN}.conf"
+    fi
+    # Also clean up old bot-name-based config if it exists
     sudo a2dissite "addbot_${BOT_NAME}.conf" 2>/dev/null
     sudo rm -f "/etc/apache2/sites-available/addbot_${BOT_NAME}.conf"
     sudo systemctl reload apache2 2>/dev/null
