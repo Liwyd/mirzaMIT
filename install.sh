@@ -289,7 +289,6 @@ function install_bot() {
         php8.2-mbstring
         php8.2-zip
         php8.2-gd
-        php8.2-json
         php8.2-curl
     )
 
