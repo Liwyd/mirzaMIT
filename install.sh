@@ -14,35 +14,44 @@ fi
 
 # Check SSL certificate status and days remaining
 check_ssl_status() {
-    if [ -f "/var/www/html/mitbotconfig/config.php" ]; then
-        domain=$(grep '^\$domainhosts' "/var/www/html/mitbotconfig/config.php" | cut -d"'" -f2 | cut -d'/' -f1)
-
-        if [ -n "$domain" ] && [ -f "/etc/letsencrypt/live/$domain/cert.pem" ]; then
-            expiry_date=$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/$domain/cert.pem" | cut -d= -f2)
-            current_date=$(date +%s)
-            expiry_timestamp=$(date -d "$expiry_date" +%s)
-            days_remaining=$(( ($expiry_timestamp - $current_date) / 86400 ))
-            if [ $days_remaining -gt 0 ]; then
-                echo -e "\033[32m✅ SSL Certificate: $days_remaining days remaining (Domain: $domain)\033[0m"
-            else
-                echo -e "\033[31m❌ SSL Certificate: Expired (Domain: $domain)\033[0m"
+    local config_found=false
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            config_found=true
+            domain=$(grep '^\$domainhosts' "$cfg" | cut -d"'" -f2 | cut -d'/' -f1)
+            if [ -n "$domain" ] && [ -f "/etc/letsencrypt/live/$domain/cert.pem" ]; then
+                expiry_date=$(openssl x509 -enddate -noout -in "/etc/letsencrypt/live/$domain/cert.pem" | cut -d= -f2)
+                current_date=$(date +%s)
+                expiry_timestamp=$(date -d "$expiry_date" +%s)
+                days_remaining=$(( ($expiry_timestamp - $current_date) / 86400 ))
+                if [ $days_remaining -gt 0 ]; then
+                    echo -e "\033[32m✅ SSL Certificate: $days_remaining days remaining (Domain: $domain)\033[0m"
+                else
+                    echo -e "\033[31m❌ SSL Certificate: Expired (Domain: $domain)\033[0m"
+                fi
             fi
-        else
-            echo -e "\033[33m⚠️ SSL Certificate: Not found for domain $domain\033[0m"
         fi
-    else
-        echo -e "\033[33m⚠️ Cannot check SSL: Config file not found\033[0m"
+    done
+    if [ "$config_found" = false ]; then
+        echo -e "\033[33m⚠️ Cannot check SSL: No config file found\033[0m"
     fi
 }
 
 # Check bot installation status
 check_bot_status() {
-    if [ -f "/var/www/html/mitbotconfig/config.php" ]; then
-        echo -e "\033[32m✅ Bot is installed\033[0m"
-        check_ssl_status
-    else
+    local found=false
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            found=true
+            local dir=$(dirname "$cfg")
+            local name=$(basename "$dir")
+            echo -e "\033[32m✅ Bot installed: $name\033[0m"
+        fi
+    done
+    if [ "$found" = false ]; then
         echo -e "\033[31m❌ Bot is not installed\033[0m"
     fi
+    check_ssl_status
 }
 
 # Display Logo
@@ -80,9 +89,10 @@ function show_menu() {
     echo -e "\033[1;36m6)\033[0m Configure Automated Backup"
     echo -e "\033[1;36m7)\033[0m Renew SSL Certificates"
     echo -e "\033[1;36m8)\033[0m Change Domain"
-    echo -e "\033[1;36m9)\033[0m Exit"
+    echo -e "\033[1;36m9)\033[0m Additional Bot Management"
+    echo -e "\033[1;36m10)\033[0m Exit"
     echo ""
-    read -p "Select an option [1-9]: " option
+    read -p "Select an option [1-10]: " option
     case $option in
         1) install_bot ;;
         2) update_bot ;;
@@ -92,7 +102,8 @@ function show_menu() {
         6) auto_backup ;;
         7) renew_ssl ;;
         8) change_domain ;;
-        9)
+        9) manage_additional_bots ;;
+        10)
             echo -e "\033[32mExiting...\033[0m"
             exit 0
             ;;
@@ -195,6 +206,14 @@ EOF
 function install_bot() {
     echo -e "\e[32mInstalling MIT script ... \033[0m\n"
 
+    # Detect existing instances and suggest next number
+    N=1
+    while [ -d "/var/www/html/mitbot${N}" ]; do
+        N=$((N + 1))
+    done
+    BOT_DIR="/var/www/html/mitbot${N}"
+    DBNAME="mitbot${N}"
+
     # Check if Marzban is installed and redirect to appropriate function
     if check_marzban_installed; then
         echo -e "\033[41m[IMPORTANT WARNING]\033[0m \033[1;33mMarzban detected. Proceeding with Marzban-compatible installation.\033[0m"
@@ -264,14 +283,14 @@ function install_bot() {
     # List of required packages
     PKG=(
         lamp-server^
-        libapache2-mod-php
+        libapache2-mod-php8.2
         mysql-server
         apache2
-        php-mbstring
-        php-zip
-        php-gd
-        php-json
-        php-curl
+        php8.2-mbstring
+        php8.2-zip
+        php8.2-gd
+        php8.2-json
+        php8.2-curl
     )
 
     # Installing required packages with error handling
@@ -321,13 +340,13 @@ function install_bot() {
     }
 
     # Additional package installations with error handling
-    sudo apt-get install -y php-soap || {
-        echo -e "\e[91mError: Failed to install php-soap.\033[0m"
+    sudo apt-get install -y php8.2-soap || {
+        echo -e "\e[91mError: Failed to install php8.2-soap.\033[0m"
         exit 1
     }
 
-    sudo apt-get install libapache2-mod-php || {
-        echo -e "\e[91mError: Failed to install libapache2-mod-php.\033[0m"
+    sudo apt-get install libapache2-mod-php8.2 || {
+        echo -e "\e[91mError: Failed to install libapache2-mod-php8.2.\033[0m"
         exit 1
     }
 
@@ -377,8 +396,8 @@ function install_bot() {
         echo -e "\e[91mError: Failed to install cURL.\033[0m"
         exit 1
     }
-    sudo apt-get install -y php-ssh2 || {
-        echo -e "\e[91mError: Failed to install php-ssh2.\033[0m"
+    sudo apt-get install -y php8.2-ssh2 || {
+        echo -e "\e[91mError: Failed to install php8.2-ssh2.\033[0m"
         exit 1
     }
     sudo apt-get install -y libssh2-1-dev libssh2-1 || {
@@ -396,7 +415,6 @@ function install_bot() {
     }
 
     # Check and remove existing directory before cloning Git repository
-    BOT_DIR="/var/www/html/mitbotconfig"
     if [ -d "$BOT_DIR" ]; then
         echo -e "\e[93mDirectory $BOT_DIR already exists. Removing...\033[0m"
         sudo rm -rf "$BOT_DIR" || {
@@ -628,11 +646,11 @@ done
 
         randomdbdb=$(openssl rand -base64 10 | tr -dc 'a-zA-Z' | cut -c1-8)
 
-        if [[ $(mysql -u root -p$ROOT_PASSWORD -e "SHOW DATABASES LIKE 'mitbot'") ]]; then
+        if [[ $(mysql -u root -p$ROOT_PASSWORD -e "SHOW DATABASES LIKE 'mitbot${N}'") ]]; then
             clear
             echo -e "\n\e[91mYou have already created the database\033[0m\n"
         else
-            dbname=mitbot
+            dbname=mitbot${N}
             clear
             echo -e "\n\e[32mPlease enter the database username!\033[0m"
             printf "[+] Default user name is \e[91m${randomdbdb}\e[0m ( let it blank to use this user name ): "
@@ -665,7 +683,7 @@ done
 
             sleep 1
 
-            file_path="/var/www/html/mitbotconfig/config.php"
+            file_path="/var/www/html/mitbot${N}/config.php"
 
             if [ -f "$file_path" ]; then
               rm "$file_path" || {
@@ -681,21 +699,21 @@ done
 
             secrettoken=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
 
-            echo -e "<?php" >> /var/www/html/mitbotconfig/config.php
-            echo -e "define('MIT_SECRET_CODE', '${MIT_SECRET}');" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}APIKEY = '${YOUR_BOT_TOKEN}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}usernamedb = '${dbuser}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}passworddb = '${dbpass}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}dbname = '${dbname}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}domainhosts = '${YOUR_DOMAIN}/mitbotconfig';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}adminnumber = '${YOUR_CHAT_ID}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}usernamebot = '${YOUR_BOTNAME}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}secrettoken = '${secrettoken}';" >> /var/www/html/mitbotconfig/config.php
-            echo -e "${ASAS}connect = mysqli_connect('localhost', \$usernamedb, \$passworddb, \$dbname);" >> /var/www/html/mitbotconfig/config.php
-            echo -e "if (${ASAS}connect->connect_error) {" >> /var/www/html/mitbotconfig/config.php
-            echo -e "die(' The connection to the database failed:' . ${ASAS}connect->connect_error);" >> /var/www/html/mitbotconfig/config.php
-            echo -e "}" >> /var/www/html/mitbotconfig/config.php
-            echo -e "mysqli_set_charset(${ASAS}connect, 'utf8mb4');" >> /var/www/html/mitbotconfig/config.php
+            echo -e "<?php" >> /var/www/html/mitbot${N}/config.php
+            echo -e "define('MIT_SECRET_CODE', '${MIT_SECRET}');" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}APIKEY = '${YOUR_BOT_TOKEN}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}usernamedb = '${dbuser}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}passworddb = '${dbpass}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}dbname = '${dbname}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}domainhosts = '${YOUR_DOMAIN}/mitbot${N}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}adminnumber = '${YOUR_CHAT_ID}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}usernamebot = '${YOUR_BOTNAME}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}secrettoken = '${secrettoken}';" >> /var/www/html/mitbot${N}/config.php
+            echo -e "${ASAS}connect = mysqli_connect('localhost', \$usernamedb, \$passworddb, \$dbname);" >> /var/www/html/mitbot${N}/config.php
+            echo -e "if (${ASAS}connect->connect_error) {" >> /var/www/html/mitbot${N}/config.php
+            echo -e "die(' The connection to the database failed:' . ${ASAS}connect->connect_error);" >> /var/www/html/mitbot${N}/config.php
+            echo -e "}" >> /var/www/html/mitbot${N}/config.php
+            echo -e "mysqli_set_charset(${ASAS}connect, 'utf8mb4');" >> /var/www/html/mitbot${N}/config.php
             text_to_save=$(cat <<EOF
 \$options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -710,12 +728,12 @@ try {
 }
 EOF
 )
-echo -e "$text_to_save" >> /var/www/html/mitbotconfig/config.php
-            echo -e "?>" >> /var/www/html/mitbotconfig/config.php
+echo -e "$text_to_save" >> /var/www/html/mitbot${N}/config.php
+            echo -e "?>" >> /var/www/html/mitbot${N}/config.php
 
             sleep 1
 
-            curl -F "url=https://${YOUR_DOMAIN}/mitbotconfig/index.php" \
+            curl -F "url=https://${YOUR_DOMAIN}/mitbot${N}/index.php" \
      -F "secret_token=${secrettoken}" \
      "https://api.telegram.org/bot${YOUR_BOT_TOKEN}/setWebhook" || {
                 echo -e "\e[91mError: Failed to set webhook for bot.\033[0m"
@@ -732,7 +750,7 @@ echo -e "$text_to_save" >> /var/www/html/mitbotconfig/config.php
                 echo -e "\e[91mError: Failed to start Apache2.\033[0m"
                 exit 1
             }
-            url="https://${YOUR_DOMAIN}/mitbotconfig/table.php"
+            url="https://${YOUR_DOMAIN}/mitbot${N}/table.php"
             curl $url || {
                 echo -e "\e[91mError: Failed to fetch URL from domain.\033[0m"
                 exit 1
@@ -996,7 +1014,7 @@ function install_bot_with_marzban() {
     if [ -z "$dbpass" ]; then
         dbpass="$default_dbpass"
     fi
-    dbname="mitbot"
+    dbname="mitbot${N}"
 
     # Create database and user inside Docker container
     docker exec "$MYSQL_CONTAINER" bash -c "mysql -u '$ROOT_USER' -p'$MYSQL_ROOT_PASSWORD' -e \"CREATE DATABASE IF NOT EXISTS $dbname; CREATE USER IF NOT EXISTS '$dbuser'@'%' IDENTIFIED BY '$dbpass'; GRANT ALL PRIVILEGES ON $dbname.* TO '$dbuser'@'%'; FLUSH PRIVILEGES;\"" || {
@@ -1006,7 +1024,6 @@ function install_bot_with_marzban() {
     echo -e "\e[92mDatabase '$dbname' created successfully.\033[0m"
 
     # Bot directory setup
-    BOT_DIR="/var/www/html/mitbotconfig"
     if [ -d "$BOT_DIR" ]; then
         echo -e "\e[93mDirectory $BOT_DIR already exists. Removing...\033[0m"
         sudo rm -rf "$BOT_DIR" || {
@@ -1242,7 +1259,7 @@ ${ASAS}APIKEY = '$YOUR_BOT_TOKEN';
 ${ASAS}usernamedb = '$dbuser';
 ${ASAS}passworddb = '$dbpass';
 ${ASAS}dbname = '$dbname';
-${ASAS}domainhosts = '$YOUR_DOMAIN/mitbotconfig';
+${ASAS}domainhosts = '$YOUR_DOMAIN/mitbot${N}';
 ${ASAS}adminnumber = '$YOUR_CHAT_ID';
 ${ASAS}usernamebot = '$YOUR_BOTNAME';
 ${ASAS}secrettoken = '$secrettoken';
@@ -1268,7 +1285,7 @@ try {
 EOF
 
     # Set webhook with port 88
-    curl -F "url=https://${YOUR_DOMAIN}/mitbotconfig/index.php" \
+    curl -F "url=https://${YOUR_DOMAIN}/mitbot${N}/index.php" \
          -F "secret_token=${secrettoken}" \
          "https://api.telegram.org/bot${YOUR_BOT_TOKEN}/setWebhook" || {
         echo -e "\e[91mError: Failed to set webhook.\033[0m"
@@ -1283,7 +1300,7 @@ EOF
     }
 
     # Execute table creation script
-    TABLE_SETUP_URL="https://${YOUR_DOMAIN}/mitbotconfig/table.php"
+    TABLE_SETUP_URL="https://${YOUR_DOMAIN}/mitbot${N}/table.php"
     echo -e "\033[33mSetting up database tables...\033[0m"
     curl $TABLE_SETUP_URL || {
         echo -e "\033[31mError: Failed to execute table creation script at $TABLE_SETUP_URL.\033[0m"
@@ -1314,12 +1331,41 @@ function update_bot() {
     fi
     echo -e "\e[92mServer packages updated successfully...\033[0m\n"
 
-    # Check if bot is already installed
-    BOT_DIR="/var/www/html/mitbotconfig"
-    if [ ! -d "$BOT_DIR" ]; then
-        echo -e "\e[91mError: MIT VPN Bot is not installed. Please install it first.\033[0m"
+    # Detect all bot instances
+    local instances=()
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            local dir=$(dirname "$cfg")
+            instances+=("$dir")
+        fi
+    done
+
+    if [ ${#instances[@]} -eq 0 ]; then
+        echo -e "\e[91mError: No MIT VPN Bot instances found. Please install one first.\033[0m"
         exit 1
     fi
+
+    # Select instance to update
+    local SELECTED_DIR=""
+    if [ ${#instances[@]} -eq 1 ]; then
+        SELECTED_DIR="${instances[0]}"
+        echo -e "\e[92mFound bot instance: $(basename "$SELECTED_DIR")\033[0m"
+    else
+        echo -e "\e[36mMultiple bot instances found:\033[0m"
+        for i in "${!instances[@]}"; do
+            echo -e "\e[33m$((i+1)))\033[0m $(basename "${instances[$i]}")"
+        done
+        echo ""
+        read -p "Select instance to update [1-${#instances[@]}]: " choice
+        if [[ "$choice" -ge 1 && "$choice" -le ${#instances[@]} ]]; then
+            SELECTED_DIR="${instances[$((choice-1))]}"
+        else
+            echo -e "\e[91mInvalid selection. Exiting...\033[0m"
+            exit 1
+        fi
+    fi
+
+    BOT_DIR="$SELECTED_DIR"
 
     # Fetch latest release from GitHub
     # Check for version flag
@@ -1344,7 +1390,7 @@ function update_bot() {
     EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)
 
     # Backup config file
-    CONFIG_PATH="/var/www/html/mitbotconfig/config.php"
+    CONFIG_PATH="${BOT_DIR}/config.php"
     TEMP_CONFIG="/root/mit_config_backup.php"
     if [ -f "$CONFIG_PATH" ]; then
         cp "$CONFIG_PATH" "$TEMP_CONFIG" || {
@@ -1354,14 +1400,14 @@ function update_bot() {
     fi
 
     # Remove old version
-    sudo rm -rf /var/www/html/mitbotconfig || {
+    sudo rm -rf "$BOT_DIR" || {
         echo -e "\e[91mFailed to remove old bot files!\033[0m"
         exit 1
     }
 
     # Move new files
-    sudo mkdir -p /var/www/html/mitbotconfig
-    sudo mv "$EXTRACTED_DIR"/* /var/www/html/mitbotconfig/ || {
+    sudo mkdir -p "$BOT_DIR"
+    sudo mv "$EXTRACTED_DIR"/* "$BOT_DIR/" || {
         echo -e "\e[91mFile transfer failed!\033[0m"
         exit 1
     }
@@ -1375,16 +1421,16 @@ function update_bot() {
     fi
 
     # Copy the new install.sh to /root/
-    if [ -f "/var/www/html/mitbotconfig/install.sh" ]; then
-        sudo cp /var/www/html/mitbotconfig/install.sh /root/install.sh
+    if [ -f "${BOT_DIR}/install.sh" ]; then
+        sudo cp "${BOT_DIR}/install.sh" /root/install.sh
         echo -e "\n\e[92mCopied latest install.sh to /root/install.sh.\033[0m"
     else
-        echo -e "\n\e[91mWarning: install.sh not found in /var/www/html/mitbotconfig/ after update. Cannot update /root/install.sh.\033[0m"
+        echo -e "\n\e[91mWarning: install.sh not found in ${BOT_DIR}/ after update. Cannot update /root/install.sh.\033[0m"
     fi
 
     # Set permissions
-    sudo chown -R www-data:www-data /var/www/html/mitbotconfig/
-    sudo chmod -R 755 /var/www/html/mitbotconfig/
+    sudo chown -R www-data:www-data "$BOT_DIR/"
+    sudo chmod -R 755 "$BOT_DIR/"
 
     # Run setup script
     URL=$(grep '\$domainhosts' "$CONFIG_PATH" | cut -d"'" -f2)
@@ -1395,7 +1441,7 @@ function update_bot() {
     # Cleanup
     rm -rf "$TEMP_DIR"
 
-    echo -e "\n\e[92mMIT VPN Bot updated to latest version successfully!\033[0m"
+    echo -e "\n\e[92mMIT VPN Bot ($(basename "$BOT_DIR")) updated to latest version successfully!\033[0m"
 
     # Ensure /root/install.sh is executable and linked
     if [ -f "/root/install.sh" ]; then
@@ -1413,17 +1459,46 @@ function remove_bot() {
     LOG_FILE="/var/log/remove_bot.log"
     echo "Log file: $LOG_FILE" > "$LOG_FILE"
 
-    # Check if MIT VPN Bot is installed
-    BOT_DIR="/var/www/html/mitbotconfig"
-    if [ ! -d "$BOT_DIR" ]; then
-        echo -e "\e[31m[ERROR]\033[0m MIT VPN Bot is not installed (/var/www/html/mitbotconfig not found)." | tee -a "$LOG_FILE"
+    # Detect all bot instances
+    local instances=()
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            local dir=$(dirname "$cfg")
+            instances+=("$dir")
+        fi
+    done
+
+    if [ ${#instances[@]} -eq 0 ]; then
+        echo -e "\e[31m[ERROR]\033[0m No MIT VPN Bot instances found." | tee -a "$LOG_FILE"
         echo -e "\e[33mNothing to remove. Exiting...\033[0m" | tee -a "$LOG_FILE"
         sleep 2
         exit 1
     fi
 
+    # Select instance to remove
+    local SELECTED_DIR=""
+    if [ ${#instances[@]} -eq 1 ]; then
+        SELECTED_DIR="${instances[0]}"
+        echo -e "\e[92mFound bot instance: $(basename "$SELECTED_DIR")\033[0m" | tee -a "$LOG_FILE"
+    else
+        echo -e "\e[36mMultiple bot instances found:\033[0m" | tee -a "$LOG_FILE"
+        for i in "${!instances[@]}"; do
+            echo -e "\e[33m$((i+1)))\033[0m $(basename "${instances[$i]}")" | tee -a "$LOG_FILE"
+        done
+        echo ""
+        read -p "Select instance to remove [1-${#instances[@]}]: " choice
+        if [[ "$choice" -ge 1 && "$choice" -le ${#instances[@]} ]]; then
+            SELECTED_DIR="${instances[$((choice-1))]}"
+        else
+            echo -e "\e[91mInvalid selection. Exiting...\033[0m" | tee -a "$LOG_FILE"
+            exit 1
+        fi
+    fi
+
+    BOT_DIR="$SELECTED_DIR"
+
     # User Confirmation
-    read -p "Are you sure you want to remove MIT VPN Bot and its dependencies? (y/n): " choice
+    read -p "Are you sure you want to remove $(basename "$BOT_DIR") and its dependencies? (y/n): " choice
     if [[ "$choice" != "y" ]]; then
         echo "Aborting..." | tee -a "$LOG_FILE"
         exit 0
@@ -1437,13 +1512,31 @@ function remove_bot() {
     fi
 
     # Proceed with normal removal if Marzban is not installed
-    echo "Removing MIT VPN Bot..." | tee -a "$LOG_FILE"
+    echo "Removing MIT VPN Bot ($(basename "$BOT_DIR"))..." | tee -a "$LOG_FILE"
+
+    # Get database name from config before removing
+    local CONFIG_PATH="${BOT_DIR}/config.php"
+    local DB_NAME=""
+    if [ -f "$CONFIG_PATH" ]; then
+        DB_NAME=$(grep '^\$dbname' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    fi
 
     # Delete the Bot Directory
     if [ -d "$BOT_DIR" ]; then
         sudo rm -rf "$BOT_DIR" && echo -e "\e[92mBot directory removed: $BOT_DIR\033[0m" | tee -a "$LOG_FILE" || {
             echo -e "\e[91mFailed to remove bot directory: $BOT_DIR. Exiting...\033[0m" | tee -a "$LOG_FILE"
             exit 1
+        }
+    fi
+
+    # Drop the specific database
+    if [ -n "$DB_NAME" ]; then
+        ROOT_PASSWORD=$(cat /root/confmit/dbrootmit.txt | grep '$pass' | cut -d"'" -f2)
+        ROOT_USER="root"
+        mysql -u "$ROOT_USER" -p"$ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null && {
+            echo -e "\e[92mDatabase $DB_NAME removed.\033[0m" | tee -a "$LOG_FILE"
+        } || {
+            echo -e "\e[93mWarning: Could not drop database $DB_NAME (it may not exist).\033[0m" | tee -a "$LOG_FILE"
         }
     fi
 
@@ -1455,102 +1548,119 @@ function remove_bot() {
         }
     fi
 
-    # Delete MySQL and Database Data
-    echo -e "\e[33mRemoving MySQL and database...\033[0m" | tee -a "$LOG_FILE"
-    sudo systemctl stop mysql
-    sudo systemctl disable mysql
-    sudo systemctl daemon-reload
+    # Check if any other instances remain before removing MySQL/Apache
+    local remaining=0
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            remaining=$((remaining + 1))
+        fi
+    done
 
-    sudo apt --fix-broken install -y
+    if [ $remaining -eq 0 ]; then
+        # No more instances, remove MySQL and Apache
+        echo -e "\e[33mNo more bot instances. Removing MySQL and dependencies...\033[0m" | tee -a "$LOG_FILE"
+        sudo systemctl stop mysql
+        sudo systemctl disable mysql
+        sudo systemctl daemon-reload
 
-    sudo apt-get purge -y mysql-server mysql-client mysql-common mysql-server-core-* mysql-client-core-*
-    sudo rm -rf /etc/mysql /var/lib/mysql /var/log/mysql /var/log/mysql.* /usr/lib/mysql /usr/include/mysql /usr/share/mysql
-    sudo rm /lib/systemd/system/mysql.service
-    sudo rm /etc/init.d/mysql
+        sudo apt --fix-broken install -y
 
-    sudo dpkg --remove --force-remove-reinstreq mysql-server mysql-server-8.0
+        sudo apt-get purge -y mysql-server mysql-client mysql-common mysql-server-core-* mysql-client-core-*
+        sudo rm -rf /etc/mysql /var/lib/mysql /var/log/mysql /var/log/mysql.* /usr/lib/mysql /usr/include/mysql /usr/share/mysql
+        sudo rm /lib/systemd/system/mysql.service
+        sudo rm /etc/init.d/mysql
 
-    sudo find /etc/systemd /lib/systemd /usr/lib/systemd -name "*mysql*" -exec rm -f {} \;
+        sudo dpkg --remove --force-remove-reinstreq mysql-server mysql-server-8.0
 
-    sudo apt-get purge -y mysql-server mysql-server-8.0 mysql-client mysql-client-8.0
-    sudo apt-get purge -y mysql-client-core-8.0 mysql-server-core-8.0 mysql-common php-mysql php8.2-mysql php8.3-mysql php-mariadb-mysql-kbs
+        sudo find /etc/systemd /lib/systemd /usr/lib/systemd -name "*mysql*" -exec rm -f {} \;
 
-    sudo apt-get autoremove --purge -y
-    sudo apt-get clean
-    sudo apt-get update
+        sudo apt-get purge -y mysql-server mysql-server-8.0 mysql-client mysql-client-8.0
+        sudo apt-get purge -y mysql-client-core-8.0 mysql-server-core-8.0 mysql-common php-mysql php8.2-mysql php8.3-mysql php-mariadb-mysql-kbs
 
-    echo -e "\e[92mMySQL has been completely removed.\033[0m" | tee -a "$LOG_FILE"
+        sudo apt-get autoremove --purge -y
+        sudo apt-get clean
+        sudo apt-get update
 
-    # Delete PHPMyAdmin
-    echo -e "\e[33mRemoving PHPMyAdmin...\033[0m" | tee -a "$LOG_FILE"
-    if dpkg -s phpmyadmin &>/dev/null; then
-        sudo apt-get purge -y phpmyadmin && echo -e "\e[92mPHPMyAdmin removed.\033[0m" | tee -a "$LOG_FILE"
-        sudo apt-get autoremove -y && sudo apt-get autoclean -y
+        echo -e "\e[92mMySQL has been completely removed.\033[0m" | tee -a "$LOG_FILE"
+
+        # Delete PHPMyAdmin
+        echo -e "\e[33mRemoving PHPMyAdmin...\033[0m" | tee -a "$LOG_FILE"
+        if dpkg -s phpmyadmin &>/dev/null; then
+            sudo apt-get purge -y phpmyadmin && echo -e "\e[92mPHPMyAdmin removed.\033[0m" | tee -a "$LOG_FILE"
+            sudo apt-get autoremove -y && sudo apt-get autoclean -y
+        else
+            echo -e "\e[93mPHPMyAdmin is not installed.\033[0m" | tee -a "$LOG_FILE"
+        fi
+
+        # Remove Apache
+        echo -e "\e[33mRemoving Apache...\033[0m" | tee -a "$LOG_FILE"
+        sudo systemctl stop apache2 || {
+            echo -e "\e[91mFailed to stop Apache. Continuing anyway...\033[0m" | tee -a "$LOG_FILE"
+        }
+        sudo systemctl disable apache2 || {
+            echo -e "\e[91mFailed to disable Apache. Continuing anyway...\033[0m" | tee -a "$LOG_FILE"
+        }
+        sudo apt-get purge -y apache2 apache2-utils apache2-bin apache2-data libapache2-mod-php* || {
+            echo -e "\e[91mFailed to purge Apache packages.\033[0m" | tee -a "$LOG_FILE"
+        }
+        sudo apt-get autoremove --purge -y
+        sudo apt-get autoclean -y
+        sudo rm -rf /etc/apache2 /var/www/html
+
+        # Delete Apache and PHP Settings
+        echo -e "\e[33mRemoving Apache and PHP configurations...\033[0m" | tee -a "$LOG_FILE"
+        sudo a2disconf phpmyadmin.conf &>/dev/null
+        sudo rm -f /etc/apache2/conf-available/phpmyadmin.conf
+        sudo systemctl restart apache2
+
+        # Remove Unnecessary Packages
+        echo -e "\e[33mRemoving additional packages...\033[0m" | tee -a "$LOG_FILE"
+        sudo apt-get remove -y php-soap php-ssh2 libssh2-1-dev libssh2-1 \
+            && echo -e "\e[92mRemoved additional PHP packages.\033[0m" | tee -a "$LOG_FILE" || echo -e "\e[93mSome additional PHP packages may not be installed.\033[0m" | tee -a "$LOG_FILE"
+
+        # Reset Firewall (without changing SSL rules)
+        echo -e "\e[33mResetting firewall rules (except SSL)...\033[0m" | tee -a "$LOG_FILE"
+        sudo ufw delete allow 'Apache'
+        sudo ufw reload
     else
-        echo -e "\e[93mPHPMyAdmin is not installed.\033[0m" | tee -a "$LOG_FILE"
+        echo -e "\e[92mRemoved $(basename "$BOT_DIR"). $remaining instance(s) remaining.\033[0m" | tee -a "$LOG_FILE"
     fi
 
-    # Remove Apache
-    echo -e "\e[33mRemoving Apache...\033[0m" | tee -a "$LOG_FILE"
-    sudo systemctl stop apache2 || {
-        echo -e "\e[91mFailed to stop Apache. Continuing anyway...\033[0m" | tee -a "$LOG_FILE"
-    }
-    sudo systemctl disable apache2 || {
-        echo -e "\e[91mFailed to disable Apache. Continuing anyway...\033[0m" | tee -a "$LOG_FILE"
-    }
-    sudo apt-get purge -y apache2 apache2-utils apache2-bin apache2-data libapache2-mod-php* || {
-        echo -e "\e[91mFailed to purge Apache packages.\033[0m" | tee -a "$LOG_FILE"
-    }
-    sudo apt-get autoremove --purge -y
-    sudo apt-get autoclean -y
-    sudo rm -rf /etc/apache2 /var/www/html
-
-    # Delete Apache and PHP Settings
-    echo -e "\e[33mRemoving Apache and PHP configurations...\033[0m" | tee -a "$LOG_FILE"
-    sudo a2disconf phpmyadmin.conf &>/dev/null
-    sudo rm -f /etc/apache2/conf-available/phpmyadmin.conf
-    sudo systemctl restart apache2
-
-    # Remove Unnecessary Packages
-    echo -e "\e[33mRemoving additional packages...\033[0m" | tee -a "$LOG_FILE"
-    sudo apt-get remove -y php-soap php-ssh2 libssh2-1-dev libssh2-1 \
-        && echo -e "\e[92mRemoved additional PHP packages.\033[0m" | tee -a "$LOG_FILE" || echo -e "\e[93mSome additional PHP packages may not be installed.\033[0m" | tee -a "$LOG_FILE"
-
-    # Reset Firewall (without changing SSL rules)
-    echo -e "\e[33mResetting firewall rules (except SSL)...\033[0m" | tee -a "$LOG_FILE"
-    sudo ufw delete allow 'Apache'
-    sudo ufw reload
-
-    echo -e "\e[92mMIT VPN Bot, MySQL, and their dependencies have been completely removed.\033[0m" | tee -a "$LOG_FILE"
+    echo -e "\e[92mMIT VPN Bot ($(basename "$BOT_DIR")) has been removed.\033[0m" | tee -a "$LOG_FILE"
 }
 
 function remove_bot_with_marzban() {
     echo -e "\e[33mRemoving MIT VPN Bot alongside Marzban...\033[0m" | tee -a "$LOG_FILE"
 
-    # Define Bot Directory
-    BOT_DIR="/var/www/html/mitbotconfig"
+    # Define Bot Directory - find the first mitbot* instance
+    local instances=()
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            instances+=("$cfg")
+        fi
+    done
 
-    # Check if Bot Directory exists before proceeding
-    if [ ! -d "$BOT_DIR" ]; then
-        echo -e "\e[93mWarning: Bot directory $BOT_DIR not found. Assuming it was already removed.\033[0m" | tee -a "$LOG_FILE"
-        DB_NAME="mitbot"  # Fallback to default database name
+    if [ ${#instances[@]} -eq 0 ]; then
+        echo -e "\e[93mWarning: No bot instances found. Assuming they were already removed.\033[0m" | tee -a "$LOG_FILE"
+        DB_NAME=""
         DB_USER=""
     else
+        local CONFIG_PATH="${instances[0]}"
+        BOT_DIR=$(dirname "$CONFIG_PATH")
         # Get database credentials from config.php BEFORE removing the directory
-        CONFIG_PATH="$BOT_DIR/config.php"
         if [ -f "$CONFIG_PATH" ]; then
             DB_USER=$(grep '^\$usernamedb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
             DB_NAME=$(grep '^\$dbname' "$CONFIG_PATH" | awk -F"'" '{print $2}')
             if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
                 echo -e "\e[91mError: Could not extract database credentials from $CONFIG_PATH. Using defaults.\033[0m" | tee -a "$LOG_FILE"
-                DB_NAME="mitbot"  # Fallback to default
+                DB_NAME=""
                 DB_USER=""
             else
                 echo -e "\e[92mFound database credentials: User=$DB_USER, Database=$DB_NAME\033[0m" | tee -a "$LOG_FILE"
             fi
         else
-            echo -e "\e[93mWarning: config.php not found at $CONFIG_PATH. Assuming default database name 'mitbot'.\033[0m" | tee -a "$LOG_FILE"
-            DB_NAME="mitbot"
+            echo -e "\e[93mWarning: config.php not found at $CONFIG_PATH.\033[0m" | tee -a "$LOG_FILE"
+            DB_NAME=""
             DB_USER=""
         fi
 
@@ -1641,7 +1751,42 @@ function remove_bot_with_marzban() {
 
 # Extract database credentials from config.php
 function extract_db_credentials() {
-    CONFIG_PATH="/var/www/html/mitbotconfig/config.php"
+    local config_path="${1:-}"
+
+    # If no config path provided, detect instances
+    if [ -z "$config_path" ]; then
+        local instances=()
+        for cfg in /var/www/html/mitbot*/config.php; do
+            if [ -f "$cfg" ]; then
+                instances+=("$cfg")
+            fi
+        done
+
+        if [ ${#instances[@]} -eq 0 ]; then
+            echo -e "\033[31m[ERROR]\033[0m No MIT VPN Bot config files found."
+            return 1
+        fi
+
+        if [ ${#instances[@]} -eq 1 ]; then
+            config_path="${instances[0]}"
+        else
+            echo -e "\033[36mMultiple bot instances found:\033[0m"
+            for i in "${!instances[@]}"; do
+                local name=$(basename "$(dirname "${instances[$i]}")")
+                echo -e "\033[33m$((i+1)))\033[0m $name"
+            done
+            echo ""
+            read -p "Select instance [1-${#instances[@]}]: " choice
+            if [[ "$choice" -ge 1 && "$choice" -le ${#instances[@]} ]]; then
+                config_path="${instances[$((choice-1))]}"
+            else
+                echo -e "\033[31m[ERROR]\033[0m Invalid selection."
+                return 1
+            fi
+        fi
+    fi
+
+    CONFIG_PATH="$config_path"
     if [ -f "$CONFIG_PATH" ]; then
         DB_USER=$(grep '^\$usernamedb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
         DB_PASS=$(grep '^\$passworddb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
@@ -1750,24 +1895,53 @@ function import_database() {
 function auto_backup() {
     echo -e "\033[36mConfigure Automated Backup\033[0m"
 
-    # Check if MIT VPN Bot is installed
-    BOT_DIR="/var/www/html/mitbotconfig"
-    if [ ! -d "$BOT_DIR" ]; then
-        echo -e "\033[31m[ERROR]\033[0m MIT VPN Bot is not installed ($BOT_DIR not found)."
+    # Detect all bot instances
+    local instances=()
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            instances+=("$cfg")
+        fi
+    done
+
+    if [ ${#instances[@]} -eq 0 ]; then
+        echo -e "\033[31m[ERROR]\033[0m No MIT VPN Bot instances found."
         echo -e "\033[33mExiting...\033[0m"
         sleep 2
         return 1
     fi
 
+    # Select instance
+    local SELECTED_CONFIG=""
+    if [ ${#instances[@]} -eq 1 ]; then
+        SELECTED_CONFIG="${instances[0]}"
+        echo -e "\033[92mFound bot instance: $(basename "$(dirname "$SELECTED_CONFIG")")\033[0m"
+    else
+        echo -e "\033[36mMultiple bot instances found:\033[0m"
+        for i in "${!instances[@]}"; do
+            local name=$(basename "$(dirname "${instances[$i]}")")
+            echo -e "\033[33m$((i+1)))\033[0m $name"
+        done
+        echo ""
+        read -p "Select instance to configure backup for [1-${#instances[@]}]: " choice
+        if [[ "$choice" -ge 1 && "$choice" -le ${#instances[@]} ]]; then
+            SELECTED_CONFIG="${instances[$((choice-1))]}"
+        else
+            echo -e "\033[31mInvalid selection. Exiting...\033[0m"
+            return 1
+        fi
+    fi
+
+    BOT_DIR=$(dirname "$SELECTED_CONFIG")
+
     # Extract credentials
-    if ! extract_db_credentials; then
+    if ! extract_db_credentials "$SELECTED_CONFIG"; then
         return 1
     fi
 
     # Determine backup script based on Marzban presence
     if check_marzban_installed; then
         echo -e "\033[41m[NOTICE]\033[0m \033[33mMarzban detected. Using Marzban-compatible backup.\033[0m"
-        BACKUP_SCRIPT="/root/backup_mit_marzban.sh"
+        BACKUP_SCRIPT="/root/backup_mit_$(basename "$BOT_DIR").sh"
         MYSQL_CONTAINER=$(docker ps -q --filter "name=mysql" --no-trunc)
         if [ -z "$MYSQL_CONTAINER" ]; then
             echo -e "\033[31m[ERROR]\033[0m No running MySQL container found for Marzban."
@@ -1786,8 +1960,8 @@ else
 fi
 EOF
     else
-        echo -e "\033[33mUsing standard backup.\033[0m"
-        BACKUP_SCRIPT="/root/mit_backup.sh"
+        echo -e "\033[33mUsing standard backup for $(basename "$BOT_DIR").\033[0m"
+        BACKUP_SCRIPT="/root/mit_backup_$(basename "$BOT_DIR").sh"
         # Verify database existence
         if ! mysql -u "$DB_USER" -p"$DB_PASS" -e "USE $DB_NAME;" 2>/dev/null; then
             echo -e "\033[31m[ERROR]\033[0m Database $DB_NAME does not exist or credentials are incorrect."
@@ -1908,6 +2082,42 @@ function renew_ssl() {
 }
 
 function change_domain() {
+    # Detect all bot instances
+    local instances=()
+    for cfg in /var/www/html/mitbot*/config.php; do
+        if [ -f "$cfg" ]; then
+            instances+=("$cfg")
+        fi
+    done
+
+    if [ ${#instances[@]} -eq 0 ]; then
+        echo -e "\033[31m[ERROR]\033[0m No MIT VPN Bot instances found."
+        return 1
+    fi
+
+    # Select instance
+    local SELECTED_CONFIG=""
+    if [ ${#instances[@]} -eq 1 ]; then
+        SELECTED_CONFIG="${instances[0]}"
+        echo -e "\033[92mFound bot instance: $(basename "$(dirname "$SELECTED_CONFIG")")\033[0m"
+    else
+        echo -e "\033[36mMultiple bot instances found:\033[0m"
+        for i in "${!instances[@]}"; do
+            local name=$(basename "$(dirname "${instances[$i]}")")
+            echo -e "\033[33m$((i+1)))\033[0m $name"
+        done
+        echo ""
+        read -p "Select instance to change domain for [1-${#instances[@]}]: " choice
+        if [[ "$choice" -ge 1 && "$choice" -le ${#instances[@]} ]]; then
+            SELECTED_CONFIG="${instances[$((choice-1))]}"
+        else
+            echo -e "\033[31mInvalid selection. Exiting...\033[0m"
+            return 1
+        fi
+    fi
+
+    local BOT_DIR_NAME=$(basename "$(dirname "$SELECTED_CONFIG")")
+
     local new_domain
     while [[ ! "$new_domain" =~ ^[a-zA-Z0-9.-]+$ ]]; do
         read -p "Enter new domain: " new_domain
@@ -1936,17 +2146,17 @@ function change_domain() {
         return 1
     fi
 
-    CONFIG_FILE="/var/www/html/mitbotconfig/config.php"
+    CONFIG_FILE="$SELECTED_CONFIG"
     if [ -f "$CONFIG_FILE" ]; then
         sudo cp "$CONFIG_FILE" "$CONFIG_FILE.$(date +%s).bak"
 
-        sudo sed -i "s/\$domainhosts = '.*\/mitbotconfig';/\$domainhosts = '${new_domain}\/mitbotconfig';/" "$CONFIG_FILE"
+        sudo sed -i "s|\$domainhosts = '.*/${BOT_DIR_NAME}';|\$domainhosts = '${new_domain}/${BOT_DIR_NAME}';|" "$CONFIG_FILE"
 
         NEW_SECRET=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9')
         sudo sed -i "s/\$secrettoken = '.*';/\$secrettoken = '${NEW_SECRET%%}';/" "$CONFIG_FILE"
 
         BOT_TOKEN=$(awk -F"'" '/\$APIKEY/{print $2}' "$CONFIG_FILE")
-        curl -s -o /dev/null -F "url=https://${new_domain}/mitbotconfig/index.php" \
+        curl -s -o /dev/null -F "url=https://${new_domain}/${BOT_DIR_NAME}/index.php" \
              -F "secret_token=${NEW_SECRET}" \
              "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" || {
             echo -e "\033[33m[WARNING] Webhook update failed\033[0m"
@@ -1967,6 +2177,665 @@ function change_domain() {
         echo -e "3. Firewall settings"
         return 1
     fi
+}
+
+# ============================================================================
+# Additional Bot Management Functions
+# ============================================================================
+
+# Sub-menu for Additional Bot Management
+function manage_additional_bots() {
+    clear
+    echo -e "\033[1;36m========================================\033[0m"
+    echo -e "\033[1;36m    Additional Bot Management\033[0m"
+    echo -e "\033[1;36m========================================\033[0m"
+    echo ""
+    echo -e "\033[1;36m1)\033[0m Install Additional Bot"
+    echo -e "\033[1;36m2)\033[0m Update Additional Bot"
+    echo -e "\033[1;36m3)\033[0m Remove Additional Bot"
+    echo -e "\033[1;36m4)\033[0m Export Additional Bot Database"
+    echo -e "\033[1;36m5)\033[0m Import Additional Bot Database"
+    echo -e "\033[1;36m6)\033[0m Configure Automated Backup for Additional Bot"
+    echo -e "\033[1;36m7)\033[0m Back to Main Menu"
+    echo ""
+    read -p "Select an option [1-7]: " option
+    case $option in
+        1) install_additional_bot ;;
+        2) update_additional_bot ;;
+        3) remove_additional_bot ;;
+        4) export_additional_bot_database ;;
+        5) import_additional_bot_database ;;
+        6) configure_backup_additional_bot ;;
+        7) show_menu ;;
+        *)
+            echo -e "\033[31mInvalid option. Please try again.\033[0m"
+            sleep 1
+            manage_additional_bots
+            ;;
+    esac
+}
+
+# Install Additional Bot on a separate domain
+function install_additional_bot() {
+    echo -e "\033[32mInstalling Additional Bot...\033[0m\n"
+
+    # Read root DB credentials
+    if [ ! -f "/root/confmit/dbrootmit.txt" ]; then
+        echo -e "\e[91mError: /root/confmit/dbrootmit.txt not found. Please install a main bot first.\033[0m"
+        return 1
+    fi
+
+    ROOT_PASSWORD=$(cat /root/confmit/dbrootmit.txt | grep '$pass' | cut -d"'" -f2)
+    ROOT_USER=$(cat /root/confmit/dbrootmit.txt | grep '$user' | cut -d"'" -f2)
+
+    if [ -z "$ROOT_PASSWORD" ] || [ -z "$ROOT_USER" ]; then
+        echo -e "\e[91mError: Could not read database credentials from /root/confmit/dbrootmit.txt.\033[0m"
+        return 1
+    fi
+
+    # Prompt for bot name
+    while true; do
+        printf "\e[33m[+] \e[36mBot name (alphanumeric, no spaces): \033[0m"
+        read BOT_NAME
+        if [[ "$BOT_NAME" =~ ^[a-zA-Z0-9_]+$ ]] && [ -n "$BOT_NAME" ]; then
+            BOT_DIR="/var/www/html/addbot_${BOT_NAME}"
+            if [ -d "$BOT_DIR" ]; then
+                echo -e "\e[91mError: A bot with this name already exists.\033[0m"
+            else
+                break
+            fi
+        else
+            echo -e "\e[91mInvalid bot name. Use only letters, numbers, and underscores.\033[0m"
+        fi
+    done
+
+    # Prompt for domain
+    while true; do
+        printf "\e[33m[+] \e[36mDomain (e.g., example.com): \033[0m"
+        read ADD_DOMAIN
+        if [[ "$ADD_DOMAIN" =~ ^[a-zA-Z0-9.-]+$ ]]; then
+            break
+        else
+            echo -e "\e[91mInvalid domain format. Please try again.\033[0m"
+        fi
+    done
+
+    # Prompt for bot token
+    while true; do
+        printf "\e[33m[+] \e[36mBot Token: \033[0m"
+        read ADD_BOT_TOKEN
+        if [[ "$ADD_BOT_TOKEN" =~ ^[0-9]{8,10}:[a-zA-Z0-9_-]{35}$ ]]; then
+            break
+        else
+            echo -e "\e[91mInvalid bot token format. Please try again.\033[0m"
+        fi
+    done
+
+    # Prompt for chat ID
+    while true; do
+        printf "\e[33m[+] \e[36mChat ID: \033[0m"
+        read ADD_CHAT_ID
+        if [[ "$ADD_CHAT_ID" =~ ^-?[0-9]+$ ]]; then
+            break
+        else
+            echo -e "\e[91mInvalid chat ID format. Please try again.\033[0m"
+        fi
+    done
+
+    # Resolve bot username
+    echo -e "\033[33mResolving bot username from token...\033[0m"
+    ADD_BOTNAME=$(curl -s "https://api.telegram.org/bot${ADD_BOT_TOKEN}/getMe" | grep -oP '"username":"\K[^"]+')
+    if [ -n "$ADD_BOTNAME" ]; then
+        echo -e "\033[32mBot username resolved: @$ADD_BOTNAME\033[0m"
+    else
+        printf "\e[33m[+] \e[36mBot Username (could not auto-resolve): \033[0m"
+        read ADD_BOTNAME
+        while [ -z "$ADD_BOTNAME" ]; do
+            echo -e "\e[91mBot username cannot be empty.\033[0m"
+            printf "\e[33m[+] \e[36mBot Username: \033[0m"
+            read ADD_BOTNAME
+        done
+    fi
+
+    # Create SSL certificate
+    echo -e "\033[33mSetting up SSL certificate...\033[0m"
+    sudo systemctl stop apache2 2>/dev/null
+    sudo ufw allow 80 2>/dev/null
+    sudo ufw allow 443 2>/dev/null
+    sudo certbot certonly --standalone --agree-tos --preferred-challenges http -d "$ADD_DOMAIN" || {
+        echo -e "\e[91mError: Failed to generate SSL certificate.\033[0m"
+        sudo systemctl start apache2 2>/dev/null
+        return 1
+    }
+    sudo apt install python3-certbot-apache -y 2>/dev/null
+    sudo certbot --apache --agree-tos --preferred-challenges http -d "$ADD_DOMAIN" || {
+        echo -e "\e[91mError: Failed to configure SSL with Certbot.\033[0m"
+        sudo systemctl start apache2 2>/dev/null
+        return 1
+    }
+    sudo systemctl enable apache2 2>/dev/null
+    sudo systemctl start apache2 2>/dev/null
+
+    # Create Apache VirtualHost
+    sudo bash -c "cat > /etc/apache2/sites-available/addbot_${BOT_NAME}.conf << VHOST
+<VirtualHost *:80>
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+VHOST"
+    sudo a2ensite "addbot_${BOT_NAME}.conf" 2>/dev/null
+    sudo systemctl reload apache2 2>/dev/null
+
+    # Clone repository
+    echo -e "\033[33mDownloading bot files...\033[0m"
+    TEMP_DIR="/tmp/addbot_${BOT_NAME}"
+    mkdir -p "$TEMP_DIR"
+    ZIP_URL=$(curl -s https://api.github.com/repos/Liwyd/mirzaMIT/releases/latest | grep "zipball_url" | cut -d '"' -f 4)
+    wget -O "$TEMP_DIR/bot.zip" "$ZIP_URL" || {
+        echo -e "\e[91mError: Failed to download bot files.\033[0m"
+        rm -rf "$TEMP_DIR"
+        return 1
+    }
+    unzip "$TEMP_DIR/bot.zip" -d "$TEMP_DIR" 2>/dev/null
+    EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)
+    sudo mkdir -p "$BOT_DIR"
+    sudo mv "$EXTRACTED_DIR"/* "$BOT_DIR/" || {
+        echo -e "\e[91mError: Failed to move bot files.\033[0m"
+        rm -rf "$TEMP_DIR"
+        return 1
+    }
+    rm -rf "$TEMP_DIR"
+    sudo chown -R www-data:www-data "$BOT_DIR"
+    sudo chmod -R 755 "$BOT_DIR"
+
+    # Create database
+    DB_NAME="mitbot_${BOT_NAME}"
+    randomdbpass=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
+    randomdbuser=$(openssl rand -base64 10 | tr -dc 'a-zA-Z' | cut -c1-8)
+
+    printf "\e[33m[+] \e[36mDatabase username (default: %s): \033[0m" "$randomdbuser"
+    read ADD_DBUSER
+    ADD_DBUSER="${ADD_DBUSER:-$randomdbuser}"
+
+    printf "\e[33m[+] \e[36mDatabase password (default: %s): \033[0m" "$randomdbpass"
+    read -s ADD_DBPASS
+    echo
+    ADD_DBPASS="${ADD_DBPASS:-$randomdbpass}"
+
+    mysql -u "$ROOT_USER" -p"$ROOT_PASSWORD" -e "CREATE DATABASE \`$DB_NAME\`;" \
+        -e "CREATE USER '$ADD_DBUSER'@'%' IDENTIFIED WITH mysql_native_password BY '$ADD_DBPASS';GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$ADD_DBUSER'@'%';FLUSH PRIVILEGES;" \
+        -e "CREATE USER '$ADD_DBUSER'@'localhost' IDENTIFIED WITH mysql_native_password BY '$ADD_DBPASS';GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$ADD_DBUSER'@'localhost';FLUSH PRIVILEGES;" || {
+        echo -e "\e[91mError: Failed to create database or user.\033[0m"
+        return 1
+    }
+    echo -e "\n\e[95mDatabase '$DB_NAME' created.\033[0m"
+
+    # Generate config.php
+    MIT_SECRET=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9')
+    secrettoken=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
+    ASAS="$"
+
+    cat <<EOF > "$BOT_DIR/config.php"
+<?php
+define('MIT_SECRET_CODE', '${MIT_SECRET}');
+${ASAS}APIKEY = '${ADD_BOT_TOKEN}';
+${ASAS}usernamedb = '${ADD_DBUSER}';
+${ASAS}passworddb = '${ADD_DBPASS}';
+${ASAS}dbname = '${DB_NAME}';
+${ASAS}domainhosts = '${ADD_DOMAIN}/addbot_${BOT_NAME}';
+${ASAS}adminnumber = '${ADD_CHAT_ID}';
+${ASAS}usernamebot = '${ADD_BOTNAME}';
+${ASAS}secrettoken = '${secrettoken}';
+${ASAS}connect = mysqli_connect('localhost', \$usernamedb, \$passworddb, \$dbname);
+if (${ASAS}connect->connect_error) {
+die(' The connection to the database failed:' . ${ASAS}connect->connect_error);
+}
+mysqli_set_charset(${ASAS}connect, 'utf8mb4');
+\$options = [
+PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+PDO::ATTR_EMULATE_PREPARES   => false,
+];
+\$dsn = "mysql:host=localhost;dbname=\${ASAS}dbname;charset=utf8mb4";
+try {
+\$pdo = new PDO(\$dsn, \$usernamedb, \$passworddb, \$options);
+} catch (\PDOException \$e) {
+throw new \PDOException(\$e->getMessage(), (int)\$e->getCode());
+}
+?>
+EOF
+
+    # Set webhook
+    curl -F "url=https://${ADD_DOMAIN}/addbot_${BOT_NAME}/index.php" \
+         -F "secret_token=${secrettoken}" \
+         "https://api.telegram.org/bot${ADD_BOT_TOKEN}/setWebhook" || {
+        echo -e "\e[91mError: Failed to set webhook.\033[0m"
+        return 1
+    }
+
+    # Send confirmation
+    MESSAGE="✅ Additional bot '$BOT_NAME' is installed! Send /start to begin."
+    curl -s -X POST "https://api.telegram.org/bot${ADD_BOT_TOKEN}/sendMessage" -d chat_id="${ADD_CHAT_ID}" -d text="$MESSAGE" 2>/dev/null
+
+    # Run table.php
+    sleep 1
+    curl -s "https://${ADD_DOMAIN}/addbot_${BOT_NAME}/table.php" || {
+        echo -e "\e[93mWarning: Could not run table.php.\033[0m"
+    }
+
+    clear
+    echo " "
+    echo -e "\e[102mAdditional Bot: https://${ADD_DOMAIN}\033[0m"
+    echo -e "\e[104mDatabase address: https://${ADD_DOMAIN}/phpmyadmin\033[0m"
+    echo -e "\e[33mBot name: \e[36m${BOT_NAME}\033[0m"
+    echo -e "\e[33mDatabase name: \e[36m${DB_NAME}\033[0m"
+    echo -e "\e[33mDatabase username: \e[36m${ADD_DBUSER}\033[0m"
+    echo -e "\e[33mDatabase password: \e[36m${ADD_DBPASS}\033[0m"
+    echo " "
+    echo -e "Additional Bot Installed Successfully"
+}
+
+# Update Additional Bot
+function update_additional_bot() {
+    echo -e "\033[32mUpdating Additional Bot...\033[0m\n"
+
+    # List additional bots (exclude mitbot* directories)
+    local addbots=()
+    for dir in /var/www/html/addbot_*; do
+        if [ -d "$dir" ] && [ -f "$dir/config.php" ]; then
+            addbots+=("$dir")
+        fi
+    done
+
+    if [ ${#addbots[@]} -eq 0 ]; then
+        echo -e "\e[91mError: No additional bots found.\033[0m"
+        return 1
+    fi
+
+    echo -e "\e[36mAvailable additional bots:\033[0m"
+    for i in "${!addbots[@]}"; do
+        echo -e "\e[33m$((i+1)))\033[0m $(basename "${addbots[$i]}")"
+    done
+    echo ""
+    read -p "Select bot to update [1-${#addbots[@]}]: " choice
+    if [[ "$choice" -lt 1 || "$choice" -gt ${#addbots[@]} ]]; then
+        echo -e "\e[91mInvalid selection.\033[0m"
+        return 1
+    fi
+
+    local BOT_DIR="${addbots[$((choice-1))]}"
+    local BOT_NAME=$(basename "$BOT_DIR")
+
+    # Download latest
+    echo -e "\033[33mDownloading latest version...\033[0m"
+    TEMP_DIR="/tmp/addbot_update"
+    mkdir -p "$TEMP_DIR"
+    ZIP_URL=$(curl -s https://api.github.com/repos/Liwyd/mirzaMIT/releases/latest | grep "zipball_url" | cut -d '"' -f4)
+    wget -O "$TEMP_DIR/bot.zip" "$ZIP_URL" || {
+        echo -e "\e[91mError: Failed to download update.\033[0m"
+        rm -rf "$TEMP_DIR"
+        return 1
+    }
+    unzip "$TEMP_DIR/bot.zip" -d "$TEMP_DIR" 2>/dev/null
+    EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)
+
+    # Backup config
+    CONFIG_PATH="${BOT_DIR}/config.php"
+    TEMP_CONFIG="/root/addbot_config_backup.php"
+    cp "$CONFIG_PATH" "$TEMP_CONFIG"
+
+    # Remove old, copy new
+    sudo rm -rf "$BOT_DIR"
+    sudo mkdir -p "$BOT_DIR"
+    sudo mv "$EXTRACTED_DIR"/* "$BOT_DIR/" || {
+        echo -e "\e[91mError: Failed to copy new files.\033[0m"
+        rm -rf "$TEMP_DIR"
+        return 1
+    }
+
+    # Restore config
+    sudo mv "$TEMP_CONFIG" "$CONFIG_PATH"
+
+    # Set permissions
+    sudo chown -R www-data:www-data "$BOT_DIR/"
+    sudo chmod -R 755 "$BOT_DIR/"
+
+    # Run table.php
+    URL=$(grep '\$domainhosts' "$CONFIG_PATH" | cut -d"'" -f2)
+    curl -s "https://$URL/table.php" || {
+        echo -e "\e[93mWarning: table.php execution failed.\033[0m"
+    }
+
+    rm -rf "$TEMP_DIR"
+    echo -e "\n\e[92mAdditional bot '$BOT_NAME' updated successfully!\033[0m"
+}
+
+# Remove Additional Bot
+function remove_additional_bot() {
+    echo -e "\033[32mRemoving Additional Bot...\033[0m\n"
+
+    # List additional bots
+    local addbots=()
+    for dir in /var/www/html/addbot_*; do
+        if [ -d "$dir" ] && [ -f "$dir/config.php" ]; then
+            addbots+=("$dir")
+        fi
+    done
+
+    if [ ${#addbots[@]} -eq 0 ]; then
+        echo -e "\e[91mError: No additional bots found.\033[0m"
+        return 1
+    fi
+
+    echo -e "\e[36mAvailable additional bots:\033[0m"
+    for i in "${!addbots[@]}"; do
+        echo -e "\e[33m$((i+1)))\033[0m $(basename "${addbots[$i]}")"
+    done
+    echo ""
+    read -p "Select bot to remove [1-${#addbots[@]}]: " choice
+    if [[ "$choice" -lt 1 || "$choice" -gt ${#addbots[@]} ]]; then
+        echo -e "\e[91mInvalid selection.\033[0m"
+        return 1
+    fi
+
+    local BOT_DIR="${addbots[$((choice-1))]}"
+    local BOT_NAME=$(basename "$BOT_DIR")
+
+    # Confirmation
+    read -p "Are you sure you want to remove '$BOT_NAME'? (y/n): " confirm
+    if [[ "$confirm" != "y" ]]; then
+        echo "Aborting..."
+        return 0
+    fi
+
+    # Get DB name from config
+    local CONFIG_PATH="${BOT_DIR}/config.php"
+    local DB_NAME=$(grep '^\$dbname' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+
+    # Drop database
+    if [ -n "$DB_NAME" ]; then
+        ROOT_PASSWORD=$(cat /root/confmit/dbrootmit.txt | grep '$pass' | cut -d"'" -f2)
+        ROOT_USER=$(cat /root/confmit/dbrootmit.txt | grep '$user' | cut -d"'" -f2)
+        mysql -u "$ROOT_USER" -p"$ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS \`$DB_NAME\`;" 2>/dev/null && {
+            echo -e "\e[92mDatabase '$DB_NAME' removed.\033[0m"
+        } || {
+            echo -e "\e[93mWarning: Could not drop database '$DB_NAME'.\033[0m"
+        }
+    fi
+
+    # Remove directory
+    sudo rm -rf "$BOT_DIR" && echo -e "\e[92mBot directory removed: $BOT_DIR\033[0m"
+
+    # Disable Apache site
+    sudo a2dissite "addbot_${BOT_NAME}.conf" 2>/dev/null
+    sudo rm -f "/etc/apache2/sites-available/addbot_${BOT_NAME}.conf"
+    sudo systemctl reload apache2 2>/dev/null
+
+    echo -e "\e[92mAdditional bot '$BOT_NAME' removed successfully.\033[0m"
+}
+
+# Export Additional Bot Database
+function export_additional_bot_database() {
+    echo -e "\033[32mExporting Additional Bot Database...\033[0m\n"
+
+    # List additional bots
+    local addbots=()
+    for dir in /var/www/html/addbot_*; do
+        if [ -d "$dir" ] && [ -f "$dir/config.php" ]; then
+            addbots+=("$dir")
+        fi
+    done
+
+    if [ ${#addbots[@]} -eq 0 ]; then
+        echo -e "\e[91mError: No additional bots found.\033[0m"
+        return 1
+    fi
+
+    echo -e "\e[36mAvailable additional bots:\033[0m"
+    for i in "${!addbots[@]}"; do
+        echo -e "\e[33m$((i+1)))\033[0m $(basename "${addbots[$i]}")"
+    done
+    echo ""
+    read -p "Select bot to export [1-${#addbots[@]}]: " choice
+    if [[ "$choice" -lt 1 || "$choice" -gt ${#addbots[@]} ]]; then
+        echo -e "\e[91mInvalid selection.\033[0m"
+        return 1
+    fi
+
+    local BOT_DIR="${addbots[$((choice-1))]}"
+    local CONFIG_PATH="${BOT_DIR}/config.php"
+
+    local DB_USER=$(grep '^\$usernamedb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local DB_PASS=$(grep '^\$passworddb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local DB_NAME=$(grep '^\$dbname' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+
+    if [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ]; then
+        echo -e "\033[31m[ERROR]\033[0m Could not extract database credentials from config.php."
+        return 1
+    fi
+
+    BACKUP_FILE="/root/${DB_NAME}_backup.sql"
+    echo -e "\033[33mCreating backup at $BACKUP_FILE...\033[0m"
+
+    if ! mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$BACKUP_FILE"; then
+        echo -e "\033[31m[ERROR]\033[0m Failed to create database backup."
+        return 1
+    fi
+
+    echo -e "\033[32mBackup successfully created at $BACKUP_FILE.\033[0m"
+}
+
+# Import Additional Bot Database
+function import_additional_bot_database() {
+    echo -e "\033[32mImporting Additional Bot Database...\033[0m\n"
+
+    # List additional bots
+    local addbots=()
+    for dir in /var/www/html/addbot_*; do
+        if [ -d "$dir" ] && [ -f "$dir/config.php" ]; then
+            addbots+=("$dir")
+        fi
+    done
+
+    if [ ${#addbots[@]} -eq 0 ]; then
+        echo -e "\e[91mError: No additional bots found.\033[0m"
+        return 1
+    fi
+
+    echo -e "\e[36mAvailable additional bots:\033[0m"
+    for i in "${!addbots[@]}"; do
+        echo -e "\e[33m$((i+1)))\033[0m $(basename "${addbots[$i]}")"
+    done
+    echo ""
+    read -p "Select bot to import for [1-${#addbots[@]}]: " choice
+    if [[ "$choice" -lt 1 || "$choice" -gt ${#addbots[@]} ]]; then
+        echo -e "\e[91mInvalid selection.\033[0m"
+        return 1
+    fi
+
+    local BOT_DIR="${addbots[$((choice-1))]}"
+    local CONFIG_PATH="${BOT_DIR}/config.php"
+
+    local DB_USER=$(grep '^\$usernamedb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local DB_PASS=$(grep '^\$passworddb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local DB_NAME=$(grep '^\$dbname' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+
+    if [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ]; then
+        echo -e "\033[31m[ERROR]\033[0m Could not extract database credentials."
+        return 1
+    fi
+
+    # List .sql files in /root
+    echo -e "\033[36mAvailable backup files in /root:\033[0m"
+    local sqlfiles=()
+    for f in /root/*_backup.sql; do
+        if [ -f "$f" ]; then
+            sqlfiles+=("$f")
+        fi
+    done
+
+    if [ ${#sqlfiles[@]} -eq 0 ]; then
+        echo -e "\e[91mNo .sql backup files found in /root.\033[0m"
+        return 1
+    fi
+
+    for i in "${!sqlfiles[@]}"; do
+        echo -e "\e[33m$((i+1)))\033[0m $(basename "${sqlfiles[$i]}")"
+    done
+    echo ""
+    read -p "Select backup file [1-${#sqlfiles[@]}]: " fchoice
+    if [[ "$fchoice" -lt 1 || "$fchoice" -gt ${#sqlfiles[@]} ]]; then
+        echo -e "\e[91mInvalid selection.\033[0m"
+        return 1
+    fi
+
+    local BACKUP_FILE="${sqlfiles[$((fchoice-1))]}"
+
+    echo -e "\033[33mImporting backup from $BACKUP_FILE...\033[0m"
+
+    if ! mysql -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$BACKUP_FILE"; then
+        echo -e "\033[31m[ERROR]\033[0m Failed to import database."
+        return 1
+    fi
+
+    echo -e "\033[32mDatabase successfully imported from $BACKUP_FILE.\033[0m"
+}
+
+# Configure Automated Backup for Additional Bot
+function configure_backup_additional_bot() {
+    echo -e "\033[36mConfigure Automated Backup for Additional Bot\033[0m\n"
+
+    # List additional bots
+    local addbots=()
+    for dir in /var/www/html/addbot_*; do
+        if [ -d "$dir" ] && [ -f "$dir/config.php" ]; then
+            addbots+=("$dir")
+        fi
+    done
+
+    if [ ${#addbots[@]} -eq 0 ]; then
+        echo -e "\e[91mError: No additional bots found.\033[0m"
+        return 1
+    fi
+
+    echo -e "\e[36mAvailable additional bots:\033[0m"
+    for i in "${!addbots[@]}"; do
+        echo -e "\e[33m$((i+1)))\033[0m $(basename "${addbots[$i]}")"
+    done
+    echo ""
+    read -p "Select bot to configure backup for [1-${#addbots[@]}]: " choice
+    if [[ "$choice" -lt 1 || "$choice" -gt ${#addbots[@]} ]]; then
+        echo -e "\e[91mInvalid selection.\033[0m"
+        return 1
+    fi
+
+    local BOT_DIR="${addbots[$((choice-1))]}"
+    local BOT_NAME=$(basename "$BOT_DIR")
+    local CONFIG_PATH="${BOT_DIR}/config.php"
+
+    local DB_USER=$(grep '^\$usernamedb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local DB_PASS=$(grep '^\$passworddb' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local DB_NAME=$(grep '^\$dbname' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local TELEGRAM_TOKEN=$(grep '^\$APIKEY' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+    local TELEGRAM_CHAT_ID=$(grep '^\$adminnumber' "$CONFIG_PATH" | awk -F"'" '{print $2}')
+
+    if [ -z "$DB_USER" ] || [ -z "$DB_PASS" ] || [ -z "$DB_NAME" ] || [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+        echo -e "\033[31m[ERROR]\033[0m Could not extract required credentials."
+        return 1
+    fi
+
+    local BACKUP_SCRIPT="/root/addbot_backup_${BOT_NAME}.sh"
+
+    if check_marzban_installed; then
+        MYSQL_CONTAINER=$(docker ps -q --filter "name=mysql" --no-trunc)
+        if [ -z "$MYSQL_CONTAINER" ]; then
+            echo -e "\033[31m[ERROR]\033[0m No running MySQL container found."
+            return 1
+        fi
+        cat <<EOF > "$BACKUP_SCRIPT"
+#!/bin/bash
+BACKUP_FILE="/root/${DB_NAME}_\$(date +\"%Y%m%d_%H%M%S\").sql"
+docker exec $MYSQL_CONTAINER mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "\$BACKUP_FILE"
+if [ \$? -eq 0 ]; then
+    curl -F document=@"\$BACKUP_FILE" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" -F chat_id="$TELEGRAM_CHAT_ID"
+    rm "\$BACKUP_FILE"
+else
+    echo "Failed to create backup for $BOT_NAME."
+fi
+EOF
+    else
+        cat <<EOF > "$BACKUP_SCRIPT"
+#!/bin/bash
+BACKUP_FILE="/root/${DB_NAME}_\$(date +\"%Y%m%d_%H%M%S\").sql"
+mysqldump -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "\$BACKUP_FILE"
+if [ \$? -eq 0 ]; then
+    curl -F document=@"\$BACKUP_FILE" "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" -F chat_id="$TELEGRAM_CHAT_ID"
+    rm "\$BACKUP_FILE"
+else
+    echo "Failed to create backup for $BOT_NAME."
+fi
+EOF
+    fi
+
+    chmod +x "$BACKUP_SCRIPT"
+
+    # Show backup frequency options
+    local CURRENT_CRON=$(crontab -l 2>/dev/null | grep "$BACKUP_SCRIPT" | grep -v "^#")
+    if [ -n "$CURRENT_CRON" ]; then
+        SCHEDULE=$(translate_cron "$CURRENT_CRON")
+        echo -e "\033[33mCurrent Backup Schedule:\033[0m $SCHEDULE"
+    else
+        echo -e "\033[33mNo active backup schedule found.\033[0m"
+    fi
+
+    echo -e "\033[36m1) Every Minute\033[0m"
+    echo -e "\033[36m2) Every Hour\033[0m"
+    echo -e "\033[36m3) Every Day\033[0m"
+    echo -e "\033[36m4) Every Week\033[0m"
+    echo -e "\033[36m5) Disable Backup\033[0m"
+    echo -e "\033[36m6) Back to Menu\033[0m"
+    echo ""
+    read -p "Select an option [1-6]: " backup_option
+
+    update_cron() {
+        local cron_line="$1"
+        if [ -n "$CURRENT_CRON" ]; then
+            crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT" | crontab - 2>/dev/null
+        fi
+        if [ -n "$cron_line" ]; then
+            (crontab -l 2>/dev/null; echo "$cron_line") | crontab - && {
+                echo -e "\033[92mBackup scheduled: $(translate_cron "$cron_line")\033[0m"
+                bash "$BACKUP_SCRIPT" &>/dev/null &
+            } || {
+                echo -e "\033[31mFailed to schedule backup.\033[0m"
+            }
+        fi
+    }
+
+    case $backup_option in
+        1) update_cron "* * * * * bash $BACKUP_SCRIPT" ;;
+        2) update_cron "0 * * * * bash $BACKUP_SCRIPT" ;;
+        3) update_cron "0 0 * * * bash $BACKUP_SCRIPT" ;;
+        4) update_cron "0 0 * * 0 bash $BACKUP_SCRIPT" ;;
+        5)
+            if [ -n "$CURRENT_CRON" ]; then
+                crontab -l 2>/dev/null | grep -v "$BACKUP_SCRIPT" | crontab - && {
+                    echo -e "\033[92mAutomated backup disabled.\033[0m"
+                } || {
+                    echo -e "\033[31mFailed to disable backup.\033[0m"
+                }
+            else
+                echo -e "\033[93mNo backup schedule to disable.\033[0m"
+            fi
+            ;;
+        6) manage_additional_bots ;;
+        *)
+            echo -e "\033[31mInvalid option. Please try again.\033[0m"
+            configure_backup_additional_bot
+            ;;
+    esac
 }
 
 # Main Execution
