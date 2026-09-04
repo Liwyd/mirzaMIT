@@ -458,6 +458,17 @@ fi
     sudo chown -R www-data:www-data "$BOT_DIR"
     sudo chmod -R 755 "$BOT_DIR"
 
+    # Install Composer dependencies if vendor dir is missing
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
+            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+        }
+    fi
+
     echo -e "\n\033[33mMIT config and script have been installed successfully.\033[0m"
 
 
@@ -1062,6 +1073,18 @@ function install_bot_with_marzban() {
 
     sudo chown -R www-data:www-data "$BOT_DIR"
     sudo chmod -R 755 "$BOT_DIR"
+
+    # Install Composer dependencies if vendor dir is missing
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
+            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+        }
+    fi
+
     echo -e "\e[92mBot files installed in $BOT_DIR.\033[0m"
     sleep 3
     clear
@@ -1430,6 +1453,17 @@ function update_bot() {
     # Set permissions
     sudo chown -R www-data:www-data "$BOT_DIR/"
     sudo chmod -R 755 "$BOT_DIR/"
+
+    # Install Composer dependencies if vendor dir is missing
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
+            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+        }
+    fi
 
     # Run setup script
     URL=$(grep '\$domainhosts' "$CONFIG_PATH" | cut -d"'" -f2)
@@ -2359,6 +2393,17 @@ VHOST"
     sudo chown -R www-data:www-data "$BOT_DIR"
     sudo chmod -R 755 "$BOT_DIR"
 
+    # Install Composer dependencies if vendor dir is missing
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
+            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+        }
+    fi
+
     # Create database
     DB_NAME="mitbot_${BOT_NAME}"
     randomdbpass=$(openssl rand -base64 10 | tr -dc 'a-zA-Z0-9' | cut -c1-8)
@@ -2510,6 +2555,17 @@ function update_additional_bot() {
     # Set permissions
     sudo chown -R www-data:www-data "$BOT_DIR/"
     sudo chmod -R 755 "$BOT_DIR/"
+
+    # Install Composer dependencies if vendor dir is missing
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
+            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+        }
+    fi
 
     # Run table.php
     URL=$(grep '\$domainhosts' "$CONFIG_PATH" | cut -d"'" -f2)
