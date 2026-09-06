@@ -392,6 +392,61 @@ function repair_bot() {
         fi
     fi
 
+    # Step 6: Check/fix SSL certificate
+    echo -e "\033[36m[6/6] Checking SSL certificate...\033[0m"
+    if [ -n "$DOMAIN" ]; then
+        CERT_FILE="/etc/letsencrypt/live/$(echo "$DOMAIN" | cut -d'/' -f1)/fullchain.pem"
+        if [ -f "$CERT_FILE" ]; then
+            echo -e "  \033[32mSSL certificate exists.\033[0m"
+
+            # Check if Apache vhost is configured
+            VHOST_FILE="/etc/apache2/sites-available/$(echo "$DOMAIN" | cut -d'/' -f1).conf"
+            if [ ! -f "$VHOST_FILE" ]; then
+                echo -e "  \033[33mApache vhost missing. Creating...\033[0m"
+                BOT_NAME_FROM_DIR=$(basename "$BOT_DIR")
+                sudo bash -c "cat > $VHOST_FILE << VHOST
+<VirtualHost *:80>
+    ServerName $(echo "$DOMAIN" | cut -d'/' -f1)
+    Redirect permanent / https://$(echo "$DOMAIN" | cut -d'/' -f1)/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName $(echo "$DOMAIN" | cut -d'/' -f1)
+    DocumentRoot /var/www/html
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/$(echo "$DOMAIN" | cut -d'/' -f1)/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/$(echo "$DOMAIN" | cut -d'/' -f1)/privkey.pem
+    Include /etc/letsencrypt/options-ssl-apache.conf
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+VHOST"
+                sudo a2ensite "$(echo "$DOMAIN" | cut -d'/' -f1).conf" 2>/dev/null
+                sudo apache2ctl configtest 2>/dev/null
+                sudo systemctl reload apache2 2>/dev/null
+                echo -e "  \033[32mApache vhost created and enabled.\033[0m"
+            else
+                echo -e "  \033[32mApache vhost exists.\033[0m"
+                # Check if site is enabled
+                if [ ! -L "/etc/apache2/sites-enabled/$(echo "$DOMAIN" | cut -d'/' -f1).conf" ]; then
+                    sudo a2ensite "$(echo "$DOMAIN" | cut -d'/' -f1).conf" 2>/dev/null
+                    sudo systemctl reload apache2 2>/dev/null
+                    echo -e "  \033[32mApache vhost enabled.\033[0m"
+                fi
+            fi
+        else
+            echo -e "  \033[33mNo SSL certificate found. Obtaining one...\033[0m"
+            DOMAIN_ONLY=$(echo "$DOMAIN" | cut -d'/' -f1)
+            sudo systemctl stop apache2 2>/dev/null
+            sudo certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --preferred-challenges http -d "$DOMAIN_ONLY" 2>/dev/null && {
+                echo -e "  \033[32mSSL certificate obtained.\033[0m"
+            } || {
+                echo -e "  \033[31mFailed to obtain SSL certificate. Check DNS for $DOMAIN_ONLY.\033[0m"
+            }
+            sudo systemctl start apache2 2>/dev/null
+        fi
+    fi
+
     echo ""
     echo -e "\033[32m========================================\033[0m"
     echo -e "\033[32m    Repair complete for $BOT_NAME\033[0m"
@@ -780,7 +835,7 @@ done
         echo -e "\e[91mError: Failed to enable certbot timer.\033[0m"
         exit 1
     }
-    sudo certbot certonly --standalone --agree-tos --preferred-challenges http -d $DOMAIN_NAME || {
+    sudo certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --preferred-challenges http -d $DOMAIN_NAME || {
         echo -e "\e[91mError: Failed to generate SSL certificate.\033[0m"
         exit 1
     }
@@ -788,9 +843,29 @@ done
         echo -e "\e[91mError: Failed to install python3-certbot-apache.\033[0m"
         exit 1
     }
-    sudo certbot --apache --agree-tos --preferred-challenges http -d $DOMAIN_NAME || {
-        echo -e "\e[91mError: Failed to configure SSL with Certbot.\033[0m"
-        exit 1
+    sudo certbot --apache --non-interactive --agree-tos --keep-until-expiring --preferred-challenges http -d $DOMAIN_NAME || {
+        echo -e "\e[93m[WARNING] certbot --apache failed. Trying fallback with manual vhost...\033[0m"
+        # Fallback: manual SSL vhost configuration
+        sudo bash -c "cat > /etc/apache2/sites-available/000-default-le-ssl.conf << SSLVHOST
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerAdmin webmaster@localhost
+    ServerName $DOMAIN_NAME
+    DocumentRoot /var/www/html
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem
+    SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+    SSLCipherSuite HIGH:!aNULL:!MD5
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+</IfModule>
+SSLVHOST"
+        sudo a2enmod ssl 2>/dev/null
+        sudo a2ensite 000-default-le-ssl.conf 2>/dev/null
+        sudo apache2ctl configtest 2>/dev/null
+        echo -e "\e[92mFallback SSL vhost configured.\033[0m"
     }
 
     echo " "
@@ -1366,9 +1441,8 @@ EOF
         echo -e "\e[91mError: Failed to restart Apache2 before Certbot.\033[0m"
         exit 1
     }
-    sudo certbot --apache --agree-tos --preferred-challenges http -d "$DOMAIN_NAME" --https-port 88 --no-redirect || {
-        echo -e "\e[91mError: Failed to configure SSL with Certbot on port 88.\033[0m"
-        exit 1
+    sudo certbot --apache --non-interactive --agree-tos --keep-until-expiring --preferred-challenges http -d "$DOMAIN_NAME" --https-port 88 --no-redirect || {
+        echo -e "\e[93m[WARNING] certbot --apache failed. Will use manual SSL vhost configuration.\033[0m"
     }
 
     # Ensure SSL VirtualHost uses port 88 with correct settings
@@ -2405,13 +2479,19 @@ function change_domain() {
     fi
 
     echo -e "\033[33mConfiguring SSL for new domain...\033[0m"
-    if ! sudo certbot --apache --redirect --agree-tos --preferred-challenges http -d "$new_domain"; then
-        echo -e "\033[31m[ERROR] SSL configuration failed!\033[0m"
-        echo -e "\033[33mCleaning up...\033[0m"
-        sudo certbot delete --cert-name "$new_domain" 2>/dev/null
-        echo -e "\033[33mRestarting Apache after cleanup...\033[0m"
-        sudo systemctl start apache2 || echo -e "\033[31m[ERROR] Failed to restart Apache!\033[0m"
-        return 1
+    if ! sudo certbot --apache --non-interactive --redirect --agree-tos --keep-until-expiring --preferred-challenges http -d "$new_domain"; then
+        echo -e "\033[33m[WARNING] certbot --apache failed. Trying certonly --standalone...\033[0m"
+        sudo systemctl start apache2 2>/dev/null
+        if sudo certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --preferred-challenges http -d "$new_domain"; then
+            echo -e "\033[32mCertificate obtained. Manual vhost configuration may be needed.\033[0m"
+        else
+            echo -e "\033[31m[ERROR] SSL configuration failed!\033[0m"
+            echo -e "\033[33mCleaning up...\033[0m"
+            sudo certbot delete --cert-name "$new_domain" 2>/dev/null
+            echo -e "\033[33mRestarting Apache after cleanup...\033[0m"
+            sudo systemctl start apache2 || echo -e "\033[31m[ERROR] Failed to restart Apache!\033[0m"
+            return 1
+        fi
     fi
 
     echo -e "\033[33mRestarting Apache after SSL configuration...\033[0m"
@@ -2576,7 +2656,7 @@ function install_additional_bot() {
     sudo systemctl stop apache2 2>/dev/null
 
     # Obtain SSL Certificate
-    sudo certbot certonly --standalone --agree-tos --preferred-challenges http -d "$ADD_DOMAIN" || {
+    sudo certbot certonly --standalone --non-interactive --agree-tos --keep-until-expiring --preferred-challenges http -d "$ADD_DOMAIN" || {
         echo -e "\e[91mError: Failed to generate SSL certificate.\033[0m"
         sudo systemctl start apache2 2>/dev/null
         return 1
