@@ -90,9 +90,10 @@ function show_menu() {
     echo -e "\033[1;36m7)\033[0m Renew SSL Certificates"
     echo -e "\033[1;36m8)\033[0m Change Domain"
     echo -e "\033[1;36m9)\033[0m Additional Bot Management"
-    echo -e "\033[1;36m10)\033[0m Exit"
+    echo -e "\033[1;36m10)\033[0m Repair Bot (Fix missing files & DB schema)"
+    echo -e "\033[1;36m11)\033[0m Exit"
     echo ""
-    read -p "Select an option [1-10]: " option
+    read -p "Select an option [1-11]: " option
     case $option in
         1) install_bot ;;
         2) update_bot ;;
@@ -103,7 +104,8 @@ function show_menu() {
         7) renew_ssl ;;
         8) change_domain ;;
         9) manage_additional_bots ;;
-        10)
+        10) repair_bot ;;
+        11)
             echo -e "\033[32mExiting...\033[0m"
             exit 0
             ;;
@@ -200,6 +202,200 @@ EOF
     mv /etc/apt/sources.list.backup /etc/apt/sources.list
     echo -e "\e[91mAll mirrors failed. Restored original sources.list\033[0m"
     return 1
+}
+
+# ============================================================================
+# Repair Bot Function
+# ============================================================================
+function repair_bot() {
+    echo -e "\033[36m========================================\033[0m"
+    echo -e "\033[36m    Repair / Fix Bot\033[0m"
+    echo -e "\033[36m========================================\033[0m"
+    echo ""
+
+    # Detect all bot instances
+    local instances=()
+    for cfg in /var/www/html/mitbot*/config.php /var/www/html/addbot_*/config.php; do
+        if [ -f "$cfg" ]; then
+            local dir=$(dirname "$cfg")
+            instances+=("$dir")
+        fi
+    done
+
+    if [ ${#instances[@]} -eq 0 ]; then
+        echo -e "\033[31m[ERROR]\033[0m No MIT VPN Bot instances found. Please install one first."
+        return 1
+    fi
+
+    # Select instance
+    local SELECTED_DIR=""
+    if [ ${#instances[@]} -eq 1 ]; then
+        SELECTED_DIR="${instances[0]}"
+        echo -e "\033[92mFound bot instance: $(basename "$SELECTED_DIR")\033[0m"
+    else
+        echo -e "\033[36mMultiple bot instances found:\033[0m"
+        for i in "${!instances[@]}"; do
+            echo -e "\033[33m$((i+1)))\033[0m $(basename "${instances[$i]}")"
+        done
+        echo ""
+        read -p "Select instance to repair [1-${#instances[@]}]: " choice
+        if [[ "$choice" -ge 1 && "$choice" -le ${#instances[@]} ]]; then
+            SELECTED_DIR="${instances[$((choice-1))]}"
+        else
+            echo -e "\033[31mInvalid selection. Exiting...\033[0m"
+            return 1
+        fi
+    fi
+
+    BOT_DIR="$SELECTED_DIR"
+    BOT_NAME=$(basename "$BOT_DIR")
+    CONFIG_PATH="${BOT_DIR}/config.php"
+
+    echo -e "\033[33mRepairing $BOT_NAME ...\033[0m"
+    echo ""
+
+    # Step 1: Check critical files
+    echo -e "\033[36m[1/5] Checking critical files...\033[0m"
+    local MISSING_FILES=0
+    for f in index.php botapi.php config.php functions.php keyboard.php text.php panels.php table.php marzban.php marzneshin.php mitpanel.php x-ui_single.php alireza_single.php s_ui.php wgdashboard.php mikrotik.php jdf.php; do
+        if [ ! -f "$BOT_DIR/$f" ]; then
+            echo -e "  \033[31mMISSING: $f\033[0m"
+            MISSING_FILES=1
+        fi
+    done
+    if [ "$MISSING_FILES" -eq 1 ]; then
+        echo -e "\033[33mSome files are missing. Re-downloading bot files...\033[0m"
+
+        # Download latest release
+        if check_marzban_installed; then
+            ZIP_URL=$(curl -s https://api.github.com/repos/Liwyd/mirzaMIT/releases/latest | grep "zipball_url" | cut -d '"' -f 4)
+        else
+            ZIP_URL=$(curl -s https://api.github.com/repos/Liwyd/mirzaMIT/releases/latest | grep "zipball_url" | cut -d '"' -f 4)
+        fi
+
+        TEMP_DIR="/tmp/mitbot_repair"
+        mkdir -p "$TEMP_DIR"
+        wget -O "$TEMP_DIR/bot.zip" "$ZIP_URL" 2>/dev/null || {
+            echo -e "\033[31mError: Failed to download bot files.\033[0m"
+            rm -rf "$TEMP_DIR"
+            return 1
+        }
+        unzip -o "$TEMP_DIR/bot.zip" -d "$TEMP_DIR" 2>/dev/null
+        EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d)
+
+        # Preserve config.php
+        cp "$CONFIG_PATH" "/tmp/mit_repair_config.php"
+
+        # Copy missing files (don't overwrite config)
+        for f in "$EXTRACTED_DIR"/*; do
+            fname=$(basename "$f")
+            if [ "$fname" != "config.php" ] && [ ! -f "$BOT_DIR/$fname" ]; then
+                sudo cp "$f" "$BOT_DIR/"
+                echo -e "  \033[32mRestored: $fname\033[0m"
+            fi
+        done
+
+        # Copy vendor directory if missing
+        if [ ! -f "$BOT_DIR/vendor/autoload.php" ] && [ -d "$EXTRACTED_DIR/vendor" ]; then
+            sudo cp -r "$EXTRACTED_DIR/vendor" "$BOT_DIR/"
+            echo -e "  \033[32mRestored: vendor/\033[0m"
+        fi
+
+        rm -rf "$TEMP_DIR"
+    else
+        echo -e "  \033[32mAll critical files present.\033[0m"
+    fi
+
+    # Step 2: Fix permissions
+    echo -e "\033[36m[2/5] Fixing permissions...\033[0m"
+    sudo chown -R www-data:www-data "$BOT_DIR"
+    sudo chmod -R 755 "$BOT_DIR"
+    echo -e "  \033[32mPermissions set.\033[0m"
+
+    # Step 3: Install/fix Composer dependencies
+    echo -e "\033[36m[3/5] Checking Composer dependencies...\033[0m"
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "  \033[33mvendor/autoload.php is MISSING. Installing...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            echo -e "  \033[33mInstalling Composer...\033[0m"
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+                echo -e "  \033[31mFailed to install Composer!\033[0m"
+                return 1
+            }
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+            echo -e "  \033[31mComposer install FAILED!\033[0m"
+            echo -e "  \033[33mTrying composer update...\033[0m"
+            cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
+                echo -e "  \033[31mComposer update also FAILED. Check PHP version (needs 8.2+).\033[0m"
+                php -v
+                return 1
+            }
+        }
+        if [ -f "$BOT_DIR/vendor/autoload.php" ]; then
+            echo -e "  \033[32mComposer dependencies installed successfully.\033[0m"
+        else
+            echo -e "  \033[31mvendor/autoload.php still missing after composer install!\033[0m"
+            return 1
+        fi
+    else
+        echo -e "  \033[32mvendor/autoload.php exists.\033[0m"
+        # Always run composer install to ensure完整性
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>&1 | tail -3
+    fi
+
+    # Step 4: Run table.php to fix database schema
+    echo -e "\033[36m[4/5] Fixing database schema (table.php)...\033[0m"
+    DOMAIN=$(grep '^\$domainhosts' "$CONFIG_PATH" | cut -d"'" -f2)
+    if [ -n "$DOMAIN" ]; then
+        TABLE_RESULT=$(curl -s "https://$DOMAIN/table.php" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "  \033[32mDatabase schema updated.\033[0m"
+            if [ -n "$TABLE_RESULT" ]; then
+                echo -e "  \033[36mOutput: $TABLE_RESULT\033[0m"
+            fi
+        else
+            echo -e "  \033[33mWarning: Could not run table.php via HTTP. Trying direct PHP...\033[0m"
+            cd "$BOT_DIR" && php table.php 2>&1 | head -20
+        fi
+    else
+        echo -e "  \033[33mCould not detect domain. Trying direct PHP...\033[0m"
+        cd "$BOT_DIR" && php table.php 2>&1 | head -20
+    fi
+
+    # Step 5: Verify bot is working
+    echo -e "\033[36m[5/5] Verifying bot...\033[0m"
+    BOT_TOKEN=$(grep '^\$APIKEY' "$CONFIG_PATH" | cut -d"'" -f2)
+    BOT_TEST=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getMe" 2>&1)
+    if echo "$BOT_TEST" | grep -q '"ok":true'; then
+        BOT_USERNAME=$(echo "$BOT_TEST" | grep -oP '"username":"\K[^"]+')
+        echo -e "  \033[32mBot is responding: @$BOT_USERNAME\033[0m"
+
+        # Re-set webhook
+        SECRET=$(grep '^\$secrettoken' "$CONFIG_PATH" | cut -d"'" -f2)
+        WEBHOOK_RESULT=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook?url=https://${DOMAIN}/index.php&secret_token=${SECRET}" 2>&1)
+        if echo "$WEBHOOK_RESULT" | grep -q '"ok":true'; then
+            echo -e "  \033[32mWebhook set successfully.\033[0m"
+        else
+            echo -e "  \033[33mWarning: Could not set webhook. Check domain/SSL.\033[0m"
+        fi
+    else
+        echo -e "  \033[31mBot is NOT responding. Check config.php and Telegram token.\033[0m"
+    fi
+
+    # Check PHP error log
+    if [ -f "$BOT_DIR/error_log" ]; then
+        local RECENT_ERRORS=$(tail -5 "$BOT_DIR/error_log" 2>/dev/null)
+        if [ -n "$RECENT_ERRORS" ]; then
+            echo -e "\033[33mRecent errors in error_log:\033[0m"
+            echo "$RECENT_ERRORS"
+        fi
+    fi
+
+    echo ""
+    echo -e "\033[32m========================================\033[0m"
+    echo -e "\033[32m    Repair complete for $BOT_NAME\033[0m"
+    echo -e "\033[32m========================================\033[0m"
 }
 
 # Install Function
@@ -458,15 +654,23 @@ fi
     sudo chown -R www-data:www-data "$BOT_DIR"
     sudo chmod -R 755 "$BOT_DIR"
 
-    # Install Composer dependencies if vendor dir is missing
-    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
-        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
-        if ! command -v composer &> /dev/null; then
-            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
-        fi
-        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
-            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+    # Install Composer dependencies
+    echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+    if ! command -v composer &> /dev/null; then
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+            echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+        echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
+        cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
+            echo -e "\033[31m[ERROR] Composer FAILED. Bot needs vendor/autoload.php to work!\033[0m"
+        }
+    }
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[31m[CRITICAL] vendor/autoload.php MISSING! Bot will not work.\033[0m"
+    else
+        echo -e "\033[32mComposer dependencies installed.\033[0m"
     fi
 
     echo -e "\n\033[33mMIT config and script have been installed successfully.\033[0m"
@@ -1069,15 +1273,23 @@ function install_bot_with_marzban() {
     sudo chown -R www-data:www-data "$BOT_DIR"
     sudo chmod -R 755 "$BOT_DIR"
 
-    # Install Composer dependencies if vendor dir is missing
-    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
-        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
-        if ! command -v composer &> /dev/null; then
-            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
-        fi
-        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
-            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+    # Install Composer dependencies
+    echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+    if ! command -v composer &> /dev/null; then
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+            echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+        echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
+        cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
+            echo -e "\033[31m[ERROR] Composer FAILED. Bot needs vendor/autoload.php to work!\033[0m"
+        }
+    }
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[31m[CRITICAL] vendor/autoload.php MISSING! Bot will not work.\033[0m"
+    else
+        echo -e "\033[32mComposer dependencies installed.\033[0m"
     fi
 
     echo -e "\e[92mBot files installed in $BOT_DIR.\033[0m"
@@ -1446,15 +1658,25 @@ function update_bot() {
     sudo chown -R www-data:www-data "$BOT_DIR/"
     sudo chmod -R 755 "$BOT_DIR/"
 
-    # Install Composer dependencies if vendor dir is missing
-    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
-        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
-        if ! command -v composer &> /dev/null; then
-            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
-        fi
-        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
-            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+    # Always ensure Composer dependencies are installed
+    echo -e "\033[33mEnsuring Composer dependencies...\033[0m"
+    if ! command -v composer &> /dev/null; then
+        echo -e "\033[33mInstalling Composer...\033[0m"
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+            echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+        echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
+        cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
+            echo -e "\033[31m[ERROR] Composer install/update FAILED. Bot will NOT work without vendor/autoload.php!\033[0m"
+            echo -e "\033[33mRun manually: cd $BOT_DIR && composer install --no-dev --optimize-autoloader\033[0m"
+        }
+    }
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[31m[CRITICAL] vendor/autoload.php is STILL MISSING after composer install!\033[0m"
+    else
+        echo -e "\033[32mvendor/autoload.php is present.\033[0m"
     fi
 
     # Run setup script
@@ -1914,6 +2136,33 @@ function import_database() {
     fi
 
     echo -e "\033[32mDatabase successfully imported from $BACKUP_FILE.\033[0m"
+
+    # Auto-run table.php to fix schema after import
+    echo -e "\033[33mRunning table.php to fix database schema...\033[0m"
+    DOMAIN=$(grep '^\$domainhosts' "$CONFIG_PATH" | cut -d"'" -f2)
+    if [ -n "$DOMAIN" ]; then
+        TABLE_RESULT=$(curl -s "https://$DOMAIN/table.php" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo -e "\033[32mDatabase schema updated successfully.\033[0m"
+            if [ -n "$TABLE_RESULT" ]; then
+                echo -e "\033[36mOutput: $TABLE_RESULT\033[0m"
+            fi
+        else
+            echo -e "\033[33mWarning: Could not run table.php via HTTP.\033[0m"
+        fi
+    fi
+
+    # Ensure vendor exists
+    BOT_DIR=$(dirname "$CONFIG_PATH")
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[33mvendor/autoload.php is missing. Installing Composer dependencies...\033[0m"
+        if ! command -v composer &> /dev/null; then
+            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+            echo -e "\033[31mComposer install failed! Bot will not work.\033[0m"
+        }
+    fi
 }
 
 # Function for automated backup
@@ -2382,15 +2631,23 @@ VHOST"
     sudo chown -R www-data:www-data "$BOT_DIR"
     sudo chmod -R 755 "$BOT_DIR"
 
-    # Install Composer dependencies if vendor dir is missing
-    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
-        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
-        if ! command -v composer &> /dev/null; then
-            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
-        fi
-        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
-            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+    # Install Composer dependencies
+    echo -e "\033[33mInstalling Composer dependencies...\033[0m"
+    if ! command -v composer &> /dev/null; then
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+            echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+        echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
+        cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
+            echo -e "\033[31m[ERROR] Composer FAILED. Bot needs vendor/autoload.php to work!\033[0m"
+        }
+    }
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[31m[CRITICAL] vendor/autoload.php MISSING! Bot will not work.\033[0m"
+    else
+        echo -e "\033[32mComposer dependencies installed.\033[0m"
     fi
 
     # Create database
@@ -2543,15 +2800,23 @@ function update_additional_bot() {
     sudo chown -R www-data:www-data "$BOT_DIR/"
     sudo chmod -R 755 "$BOT_DIR/"
 
-    # Install Composer dependencies if vendor dir is missing
-    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
-        echo -e "\033[33mInstalling Composer dependencies...\033[0m"
-        if ! command -v composer &> /dev/null; then
-            curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
-        fi
-        cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>/dev/null || {
-            echo -e "\033[33m[WARNING] Composer install failed. QR codes may not work.\033[0m"
+    # Always ensure Composer dependencies
+    echo -e "\033[33mEnsuring Composer dependencies...\033[0m"
+    if ! command -v composer &> /dev/null; then
+        curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
+            echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
+        echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
+        cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
+            echo -e "\033[31m[ERROR] Composer FAILED. Bot needs vendor/autoload.php to work!\033[0m"
+        }
+    }
+    if [ ! -f "$BOT_DIR/vendor/autoload.php" ]; then
+        echo -e "\033[31m[CRITICAL] vendor/autoload.php MISSING! Bot will not work.\033[0m"
+    else
+        echo -e "\033[32mvendor/autoload.php is present.\033[0m"
     fi
 
     # Run table.php

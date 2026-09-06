@@ -1,5 +1,10 @@
 <?php
-require_once 'vendor/autoload.php';
+if (!file_exists(__DIR__ . '/vendor/autoload.php')) {
+    error_log('[MIT-BOT] vendor/autoload.php is missing! Run: cd ' . __DIR__ . ' && composer install --no-dev --optimize-autoloader');
+    http_response_code(500);
+    die('ERROR: vendor/autoload.php not found. Run "composer install --no-dev --optimize-autoloader" in the bot directory.');
+}
+require_once __DIR__ . '/vendor/autoload.php';
 use Endroid\QrCode\Encoding\Encoding;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\QrCode;
