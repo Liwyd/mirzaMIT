@@ -323,6 +323,25 @@ function repair_bot() {
                 return 1
             }
         fi
+        # Create composer.json if it doesn't exist (GitHub releases may not include it)
+        if [ ! -f "$BOT_DIR/composer.json" ]; then
+            echo -e "  \033[33mcomposer.json not found. Creating...\033[0m"
+            sudo tee "$BOT_DIR/composer.json" > /dev/null << 'EOFCOMPOSER'
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+EOFCOMPOSER
+            echo -e "  \033[32mcomposer.json created.\033[0m"
+        fi
         cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
             echo -e "  \033[31mComposer install FAILED!\033[0m"
             echo -e "  \033[33mTrying composer update...\033[0m"
@@ -340,7 +359,7 @@ function repair_bot() {
         fi
     else
         echo -e "  \033[32mvendor/autoload.php exists.\033[0m"
-        # Always run composer install to ensure完整性
+        # Always run composer install to ensure completeness
         cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader 2>&1 | tail -3
     fi
 
@@ -715,6 +734,25 @@ fi
         curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
             echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    # Create composer.json if it doesn't exist (GitHub releases may not include it)
+    if [ ! -f "$BOT_DIR/composer.json" ]; then
+        echo -e "\033[33mcomposer.json not found. Creating...\033[0m"
+        sudo tee "$BOT_DIR/composer.json" > /dev/null << 'EOFCOMPOSER'
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+EOFCOMPOSER
+        echo -e "\033[32mcomposer.json created.\033[0m"
     fi
     cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
         echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
@@ -1355,6 +1393,25 @@ function install_bot_with_marzban() {
             echo -e "\033[31mFailed to install Composer!\033[0m"
         }
     fi
+    # Create composer.json if it doesn't exist (GitHub releases may not include it)
+    if [ ! -f "$BOT_DIR/composer.json" ]; then
+        echo -e "\033[33mcomposer.json not found. Creating...\033[0m"
+        sudo tee "$BOT_DIR/composer.json" > /dev/null << 'EOFCOMPOSER'
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+EOFCOMPOSER
+        echo -e "\033[32mcomposer.json created.\033[0m"
+    fi
     cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
         echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
         cd "$BOT_DIR" && composer update --no-dev --optimize-autoloader || {
@@ -1739,6 +1796,25 @@ function update_bot() {
         curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
             echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    # Create composer.json if it doesn't exist (GitHub releases may not include it)
+    if [ ! -f "$BOT_DIR/composer.json" ]; then
+        echo -e "\033[33mcomposer.json not found. Creating...\033[0m"
+        sudo tee "$BOT_DIR/composer.json" > /dev/null << 'EOFCOMPOSER'
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+EOFCOMPOSER
+        echo -e "\033[32mcomposer.json created.\033[0m"
     fi
     cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
         echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
@@ -2232,6 +2308,25 @@ function import_database() {
         echo -e "\033[33mvendor/autoload.php is missing. Installing Composer dependencies...\033[0m"
         if ! command -v composer &> /dev/null; then
             curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer 2>/dev/null
+        fi
+        # Create composer.json if it doesn't exist
+        if [ ! -f "$BOT_DIR/composer.json" ]; then
+            echo -e "\033[33mcomposer.json not found. Creating...\033[0m"
+            sudo tee "$BOT_DIR/composer.json" > /dev/null << 'EOFCOMPOSER'
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+EOFCOMPOSER
+            echo -e "\033[32mcomposer.json created.\033[0m"
         fi
         cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
             echo -e "\033[31mComposer install failed! Bot will not work.\033[0m"
@@ -2886,6 +2981,25 @@ function update_additional_bot() {
         curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer || {
             echo -e "\033[31mFailed to install Composer!\033[0m"
         }
+    fi
+    # Create composer.json if it doesn't exist (GitHub releases may not include it)
+    if [ ! -f "$BOT_DIR/composer.json" ]; then
+        echo -e "\033[33mcomposer.json not found. Creating...\033[0m"
+        sudo tee "$BOT_DIR/composer.json" > /dev/null << 'EOFCOMPOSER'
+{
+    "name": "mirzamit/bot",
+    "description": "MIT VPN Bot",
+    "require": {
+        "endroid/qr-code": "5.0.4",
+        "bacon/bacon-qr-code": "2.0.8",
+        "dasprid/enum": "1.0.5"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}
+EOFCOMPOSER
+        echo -e "\033[32mcomposer.json created.\033[0m"
     fi
     cd "$BOT_DIR" && composer install --no-dev --optimize-autoloader || {
         echo -e "\033[31mComposer install failed! Trying composer update...\033[0m"
